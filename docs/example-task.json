@@ -1,0 +1,12 @@
+{
+  "kind": "task",
+  "title": "Make checkout retries safe",
+  "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+  "acceptance_criteria": [
+    "Repeating a checkout request creates one order.",
+    "A retry returns the original receipt."
+  ],
+  "assignee": "codex@harbor",
+  "priority": "high",
+  "dependency_ids": []
+}

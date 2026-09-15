@@ -1,0 +1,2171 @@
+{
+  "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+  "records": [
+    {
+      "title": "Instance identity",
+      "request": {
+        "method": "GET",
+        "url": "http://127.0.0.1:63453/api/v1/health",
+        "headers": {
+          "X-Actor": "nate",
+          "X-Via": "api"
+        },
+        "body": null
+      },
+      "status": 200,
+      "response": {
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "schema_version": 2,
+        "version": "1.0.0"
+      }
+    },
+    {
+      "title": "Create project",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/projects",
+        "headers": {
+          "X-Actor": "nate",
+          "X-Via": "api",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "create-project"
+        },
+        "body": {
+          "key": "HBR",
+          "name": "Harbor",
+          "brief_markdown": "# Reliable checkout\nOne order and receipt for every checkout, including retries."
+        }
+      },
+      "status": 201,
+      "response": {
+        "aliases": [
+          "HBR"
+        ],
+        "brief_markdown": "# Reliable checkout\nOne order and receipt for every checkout, including retries.",
+        "created_at": "2026-09-15T16:05:35.976Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "document_links": [],
+        "id": 1,
+        "key": "HBR",
+        "name": "Harbor",
+        "updated_at": "2026-09-15T16:05:35.976Z",
+        "updated_by": "nate",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/projects/HBR",
+        "version": 1
+      }
+    },
+    {
+      "title": "Create epic",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/tasks",
+        "headers": {
+          "X-Actor": "nate",
+          "X-Via": "api",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "create-epic"
+        },
+        "body": {
+          "project_id": 1,
+          "kind": "epic",
+          "title": "Checkout reliability",
+          "description_markdown": "Recover disconnected checkouts.",
+          "acceptance_criteria": [
+            "All retry cases pass."
+          ],
+          "assignee": "nate"
+        }
+      },
+      "status": 201,
+      "response": {
+        "acceptance_criteria": [
+          "All retry cases pass."
+        ],
+        "archived_at": null,
+        "assignee": "nate",
+        "blocked": false,
+        "blocker_reason": null,
+        "blockers": [],
+        "checkpoint": null,
+        "children_url": "/api/v1/tasks?project_id=1&parent_id=1",
+        "completion": null,
+        "created_at": "2026-09-15T16:05:35.977Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "dependencies": [],
+        "dependency_ids": [],
+        "description_markdown": "Recover disconnected checkouts.",
+        "epic": null,
+        "execution": null,
+        "id": 1,
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "kind": "epic",
+        "parent_id": null,
+        "pickup_needed": false,
+        "position": 1024,
+        "priority": "normal",
+        "progress": {
+          "done": 0,
+          "total": 0
+        },
+        "project_id": 1,
+        "project_key": "HBR",
+        "reference": "HBR-1",
+        "result": null,
+        "status": "backlog",
+        "thread_links": [],
+        "title": "Checkout reliability",
+        "updated_at": "2026-09-15T16:05:35.977Z",
+        "updated_by": "nate",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/tasks/1",
+        "version": 1
+      }
+    },
+    {
+      "title": "Create task",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/tasks",
+        "headers": {
+          "X-Actor": "nate",
+          "X-Via": "api",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "task-create-001"
+        },
+        "body": {
+          "project_id": 1,
+          "kind": "task",
+          "parent_id": 1,
+          "title": "Make checkout retries safe",
+          "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+          "acceptance_criteria": [
+            "Repeating a checkout request creates one order.",
+            "A retry returns the original receipt."
+          ],
+          "assignee": "codex@harbor",
+          "priority": "high",
+          "dependency_ids": []
+        }
+      },
+      "status": 201,
+      "response": {
+        "acceptance_criteria": [
+          "Repeating a checkout request creates one order.",
+          "A retry returns the original receipt."
+        ],
+        "archived_at": null,
+        "assignee": "codex@harbor",
+        "blocked": false,
+        "blocker_reason": null,
+        "blockers": [],
+        "checkpoint": null,
+        "completion": null,
+        "created_at": "2026-09-15T16:05:35.979Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "dependencies": [],
+        "dependency_ids": [],
+        "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+        "epic": {
+          "id": 1,
+          "status": "backlog",
+          "title": "Checkout reliability"
+        },
+        "execution": null,
+        "id": 2,
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "kind": "task",
+        "parent_id": 1,
+        "pickup_needed": false,
+        "position": 2048,
+        "priority": "high",
+        "project_id": 1,
+        "project_key": "HBR",
+        "reference": "HBR-2",
+        "result": null,
+        "status": "backlog",
+        "thread_links": [],
+        "title": "Make checkout retries safe",
+        "updated_at": "2026-09-15T16:05:35.979Z",
+        "updated_by": "nate",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/tasks/2",
+        "version": 1
+      }
+    },
+    {
+      "title": "Retry task creation",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/tasks",
+        "headers": {
+          "X-Actor": "nate",
+          "X-Via": "api",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "task-create-001"
+        },
+        "body": {
+          "project_id": 1,
+          "kind": "task",
+          "parent_id": 1,
+          "title": "Make checkout retries safe",
+          "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+          "acceptance_criteria": [
+            "Repeating a checkout request creates one order.",
+            "A retry returns the original receipt."
+          ],
+          "assignee": "codex@harbor",
+          "priority": "high",
+          "dependency_ids": []
+        }
+      },
+      "status": 201,
+      "response": {
+        "acceptance_criteria": [
+          "Repeating a checkout request creates one order.",
+          "A retry returns the original receipt."
+        ],
+        "archived_at": null,
+        "assignee": "codex@harbor",
+        "blocked": false,
+        "blocker_reason": null,
+        "blockers": [],
+        "checkpoint": null,
+        "completion": null,
+        "created_at": "2026-09-15T16:05:35.979Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "dependencies": [],
+        "dependency_ids": [],
+        "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+        "epic": {
+          "id": 1,
+          "status": "backlog",
+          "title": "Checkout reliability"
+        },
+        "execution": null,
+        "id": 2,
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "kind": "task",
+        "parent_id": 1,
+        "pickup_needed": false,
+        "position": 2048,
+        "priority": "high",
+        "project_id": 1,
+        "project_key": "HBR",
+        "reference": "HBR-2",
+        "result": null,
+        "status": "backlog",
+        "thread_links": [],
+        "title": "Make checkout retries safe",
+        "updated_at": "2026-09-15T16:05:35.979Z",
+        "updated_by": "nate",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/tasks/2",
+        "version": 1
+      }
+    },
+    {
+      "title": "Rename project",
+      "request": {
+        "method": "PATCH",
+        "url": "http://127.0.0.1:63453/api/v1/projects/1",
+        "headers": {
+          "X-Actor": "nate",
+          "X-Via": "api",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "rename-project"
+        },
+        "body": {
+          "expected_version": 1,
+          "key": "HARBOR",
+          "name": "Harbor checkout"
+        }
+      },
+      "status": 200,
+      "response": {
+        "aliases": [
+          "HARBOR",
+          "HBR"
+        ],
+        "brief_markdown": "# Reliable checkout\nOne order and receipt for every checkout, including retries.",
+        "created_at": "2026-09-15T16:05:35.976Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "document_links": [],
+        "id": 1,
+        "key": "HARBOR",
+        "name": "Harbor checkout",
+        "updated_at": "2026-09-15T16:05:35.981Z",
+        "updated_by": "nate",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/projects/HARBOR",
+        "version": 2
+      }
+    },
+    {
+      "title": "Resolve earlier reference",
+      "request": {
+        "method": "GET",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/HBR-2",
+        "headers": {
+          "X-Actor": "nate",
+          "X-Via": "api"
+        },
+        "body": null
+      },
+      "status": 200,
+      "response": {
+        "acceptance_criteria": [
+          "Repeating a checkout request creates one order.",
+          "A retry returns the original receipt."
+        ],
+        "archived_at": null,
+        "assignee": "codex@harbor",
+        "blocked": false,
+        "blocker_reason": null,
+        "blockers": [],
+        "checkpoint": null,
+        "completion": null,
+        "created_at": "2026-09-15T16:05:35.979Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "dependencies": [],
+        "dependency_ids": [],
+        "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+        "epic": {
+          "id": 1,
+          "status": "backlog",
+          "title": "Checkout reliability"
+        },
+        "execution": null,
+        "id": 2,
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "kind": "task",
+        "parent_id": 1,
+        "pickup_needed": false,
+        "position": 2048,
+        "priority": "high",
+        "project_id": 1,
+        "project_key": "HARBOR",
+        "reference": "HARBOR-2",
+        "result": null,
+        "status": "backlog",
+        "thread_links": [],
+        "title": "Make checkout retries safe",
+        "updated_at": "2026-09-15T16:05:35.979Z",
+        "updated_by": "nate",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/tasks/2",
+        "version": 1
+      }
+    },
+    {
+      "title": "Claim task",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/2/claim",
+        "headers": {
+          "X-Actor": "codex@harbor",
+          "X-Via": "api",
+          "X-Session": "checkout-1",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "task-claim-001"
+        },
+        "body": {
+          "expected_version": 1
+        }
+      },
+      "status": 200,
+      "response": {
+        "acceptance_criteria": [
+          "Repeating a checkout request creates one order.",
+          "A retry returns the original receipt."
+        ],
+        "archived_at": null,
+        "assignee": "codex@harbor",
+        "blocked": false,
+        "blocker_reason": null,
+        "blockers": [],
+        "checkpoint": null,
+        "completion": null,
+        "created_at": "2026-09-15T16:05:35.979Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "dependencies": [],
+        "dependency_ids": [],
+        "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+        "epic": {
+          "id": 1,
+          "status": "backlog",
+          "title": "Checkout reliability"
+        },
+        "execution": {
+          "actor": "codex@harbor",
+          "claimed_at": "2026-09-15T16:05:35.983Z",
+          "session": "checkout-1"
+        },
+        "id": 2,
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "kind": "task",
+        "parent_id": 1,
+        "pickup_needed": false,
+        "position": 1024,
+        "priority": "high",
+        "project_id": 1,
+        "project_key": "HARBOR",
+        "reference": "HARBOR-2",
+        "result": null,
+        "status": "in_progress",
+        "thread_links": [],
+        "title": "Make checkout retries safe",
+        "updated_at": "2026-09-15T16:05:35.983Z",
+        "updated_by": "codex@harbor",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/tasks/2",
+        "version": 2
+      }
+    },
+    {
+      "title": "Retry claim after version advanced",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/2/claim",
+        "headers": {
+          "X-Actor": "codex@harbor",
+          "X-Via": "api",
+          "X-Session": "checkout-1",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "task-claim-001"
+        },
+        "body": {
+          "expected_version": 1
+        }
+      },
+      "status": 200,
+      "response": {
+        "acceptance_criteria": [
+          "Repeating a checkout request creates one order.",
+          "A retry returns the original receipt."
+        ],
+        "archived_at": null,
+        "assignee": "codex@harbor",
+        "blocked": false,
+        "blocker_reason": null,
+        "blockers": [],
+        "checkpoint": null,
+        "completion": null,
+        "created_at": "2026-09-15T16:05:35.979Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "dependencies": [],
+        "dependency_ids": [],
+        "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+        "epic": {
+          "id": 1,
+          "status": "backlog",
+          "title": "Checkout reliability"
+        },
+        "execution": {
+          "actor": "codex@harbor",
+          "claimed_at": "2026-09-15T16:05:35.983Z",
+          "session": "checkout-1"
+        },
+        "id": 2,
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "kind": "task",
+        "parent_id": 1,
+        "pickup_needed": false,
+        "position": 1024,
+        "priority": "high",
+        "project_id": 1,
+        "project_key": "HARBOR",
+        "reference": "HARBOR-2",
+        "result": null,
+        "status": "in_progress",
+        "thread_links": [],
+        "title": "Make checkout retries safe",
+        "updated_at": "2026-09-15T16:05:35.983Z",
+        "updated_by": "codex@harbor",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/tasks/2",
+        "version": 2
+      }
+    },
+    {
+      "title": "Reject changed request key reuse",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/2/claim",
+        "headers": {
+          "X-Actor": "codex@harbor",
+          "X-Via": "api",
+          "X-Session": "checkout-1",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "task-claim-001"
+        },
+        "body": {
+          "expected_version": 2
+        }
+      },
+      "status": 409,
+      "response": {
+        "error": {
+          "code": "idempotency_conflict",
+          "fields": {},
+          "message": "This request key was already used for different content or caller context."
+        }
+      }
+    },
+    {
+      "title": "Reject stale edit",
+      "request": {
+        "method": "PATCH",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/2",
+        "headers": {
+          "X-Actor": "nate",
+          "X-Via": "api",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "reject-stale-edit"
+        },
+        "body": {
+          "expected_version": 1,
+          "title": "A stale title"
+        }
+      },
+      "status": 409,
+      "response": {
+        "error": {
+          "code": "version_conflict",
+          "current_url": "http://127.0.0.1:63453/tasks/2",
+          "current_version": 2,
+          "fields": {},
+          "message": "Record 2 changed. Fetch the current record before retrying."
+        }
+      }
+    },
+    {
+      "title": "Save checkpoint",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/2/checkpoint",
+        "headers": {
+          "X-Actor": "codex@harbor",
+          "X-Via": "api",
+          "X-Session": "checkout-1",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "save-checkpoint"
+        },
+        "body": {
+          "expected_version": 2,
+          "checkpoint": {
+            "summary": "Retry handling is implemented; the disconnect regression remains.",
+            "next_action": "Add a regression for a retry after the connection closes.",
+            "workspace": "/work/harbor",
+            "branch": "fix/checkout-retries",
+            "acceptance_remaining": [
+              "A retry after a disconnect creates no second order."
+            ],
+            "evidence": [
+              {
+                "label": "Current test run",
+                "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+              }
+            ]
+          }
+        }
+      },
+      "status": 200,
+      "response": {
+        "acceptance_criteria": [
+          "Repeating a checkout request creates one order.",
+          "A retry returns the original receipt."
+        ],
+        "archived_at": null,
+        "assignee": "codex@harbor",
+        "blocked": false,
+        "blocker_reason": null,
+        "blockers": [],
+        "checkpoint": {
+          "acceptance_remaining": [
+            "A retry after a disconnect creates no second order."
+          ],
+          "branch": "fix/checkout-retries",
+          "commit": "",
+          "evidence": [
+            {
+              "label": "Current test run",
+              "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+            }
+          ],
+          "next_action": "Add a regression for a retry after the connection closes.",
+          "not_applicable_reason": "",
+          "summary": "Retry handling is implemented; the disconnect regression remains.",
+          "workspace": "/work/harbor"
+        },
+        "completion": null,
+        "created_at": "2026-09-15T16:05:35.979Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "dependencies": [],
+        "dependency_ids": [],
+        "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+        "epic": {
+          "id": 1,
+          "status": "backlog",
+          "title": "Checkout reliability"
+        },
+        "execution": {
+          "actor": "codex@harbor",
+          "claimed_at": "2026-09-15T16:05:35.983Z",
+          "session": "checkout-1"
+        },
+        "id": 2,
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "kind": "task",
+        "parent_id": 1,
+        "pickup_needed": false,
+        "position": 1024,
+        "priority": "high",
+        "project_id": 1,
+        "project_key": "HARBOR",
+        "reference": "HARBOR-2",
+        "result": null,
+        "status": "in_progress",
+        "thread_links": [],
+        "title": "Make checkout retries safe",
+        "updated_at": "2026-09-15T16:05:35.986Z",
+        "updated_by": "codex@harbor",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/tasks/2",
+        "version": 3
+      }
+    },
+    {
+      "title": "Handoff to another actor",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/2/handoff",
+        "headers": {
+          "X-Actor": "codex@harbor",
+          "X-Via": "api",
+          "X-Session": "checkout-1",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "handoff-to-another-actor"
+        },
+        "body": {
+          "expected_version": 3,
+          "checkpoint": {
+            "summary": "Retry handling is implemented; the disconnect regression remains.",
+            "next_action": "Add a regression for a retry after the connection closes.",
+            "workspace": "/work/harbor",
+            "branch": "fix/checkout-retries",
+            "acceptance_remaining": [
+              "A retry after a disconnect creates no second order."
+            ],
+            "evidence": [
+              {
+                "label": "Current test run",
+                "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+              }
+            ]
+          },
+          "to": "nate"
+        }
+      },
+      "status": 200,
+      "response": {
+        "acceptance_criteria": [
+          "Repeating a checkout request creates one order.",
+          "A retry returns the original receipt."
+        ],
+        "archived_at": null,
+        "assignee": "nate",
+        "blocked": false,
+        "blocker_reason": null,
+        "blockers": [],
+        "checkpoint": {
+          "acceptance_remaining": [
+            "A retry after a disconnect creates no second order."
+          ],
+          "branch": "fix/checkout-retries",
+          "commit": "",
+          "evidence": [
+            {
+              "label": "Current test run",
+              "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+            }
+          ],
+          "next_action": "Add a regression for a retry after the connection closes.",
+          "not_applicable_reason": "",
+          "summary": "Retry handling is implemented; the disconnect regression remains.",
+          "workspace": "/work/harbor"
+        },
+        "completion": null,
+        "created_at": "2026-09-15T16:05:35.979Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "dependencies": [],
+        "dependency_ids": [],
+        "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+        "epic": {
+          "id": 1,
+          "status": "backlog",
+          "title": "Checkout reliability"
+        },
+        "execution": null,
+        "id": 2,
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "kind": "task",
+        "parent_id": 1,
+        "pickup_needed": true,
+        "position": 1024,
+        "priority": "high",
+        "project_id": 1,
+        "project_key": "HARBOR",
+        "reference": "HARBOR-2",
+        "result": null,
+        "status": "in_progress",
+        "thread_links": [],
+        "title": "Make checkout retries safe",
+        "updated_at": "2026-09-15T16:05:35.987Z",
+        "updated_by": "codex@harbor",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/tasks/2",
+        "version": 4
+      }
+    },
+    {
+      "title": "Recover context from brief",
+      "request": {
+        "method": "GET",
+        "url": "http://127.0.0.1:63453/api/v1/brief?project_id=1",
+        "headers": {
+          "X-Actor": "nate",
+          "X-Via": "api"
+        },
+        "body": null
+      },
+      "status": 200,
+      "response": {
+        "has_more": false,
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "items": [
+          {
+            "assignee": "nate",
+            "blockers": [],
+            "checkpoint": null,
+            "execution": null,
+            "id": 1,
+            "kind": "epic",
+            "reference": "HARBOR-1",
+            "result": null,
+            "status": "backlog",
+            "thread_links": [],
+            "title": "Checkout reliability",
+            "updated_at": "2026-09-15T16:05:35.977Z",
+            "url": "http://127.0.0.1:63453/tasks/1",
+            "version": 1
+          },
+          {
+            "assignee": "nate",
+            "blockers": [],
+            "checkpoint": {
+              "acceptance_remaining": [
+                "A retry after a disconnect creates no second order."
+              ],
+              "branch": "fix/checkout-retries",
+              "commit": "",
+              "evidence": [
+                {
+                  "label": "Current test run",
+                  "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+                }
+              ],
+              "next_action": "Add a regression for a retry after the connection closes.",
+              "not_applicable_reason": "",
+              "summary": "Retry handling is implemented; the disconnect regression remains.",
+              "workspace": "/work/harbor"
+            },
+            "execution": null,
+            "id": 2,
+            "kind": "task",
+            "reference": "HARBOR-2",
+            "result": null,
+            "status": "in_progress",
+            "thread_links": [],
+            "title": "Make checkout retries safe",
+            "updated_at": "2026-09-15T16:05:35.987Z",
+            "url": "http://127.0.0.1:63453/tasks/2",
+            "version": 4
+          }
+        ],
+        "next_cursor": null,
+        "project_total": 2,
+        "total": 2
+      }
+    },
+    {
+      "title": "Claim handed off work",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/2/claim",
+        "headers": {
+          "X-Actor": "nate",
+          "X-Via": "api",
+          "X-Session": "review-prep",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "claim-handed-off-work"
+        },
+        "body": {
+          "expected_version": 4
+        }
+      },
+      "status": 200,
+      "response": {
+        "acceptance_criteria": [
+          "Repeating a checkout request creates one order.",
+          "A retry returns the original receipt."
+        ],
+        "archived_at": null,
+        "assignee": "nate",
+        "blocked": false,
+        "blocker_reason": null,
+        "blockers": [],
+        "checkpoint": {
+          "acceptance_remaining": [
+            "A retry after a disconnect creates no second order."
+          ],
+          "branch": "fix/checkout-retries",
+          "commit": "",
+          "evidence": [
+            {
+              "label": "Current test run",
+              "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+            }
+          ],
+          "next_action": "Add a regression for a retry after the connection closes.",
+          "not_applicable_reason": "",
+          "summary": "Retry handling is implemented; the disconnect regression remains.",
+          "workspace": "/work/harbor"
+        },
+        "completion": null,
+        "created_at": "2026-09-15T16:05:35.979Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "dependencies": [],
+        "dependency_ids": [],
+        "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+        "epic": {
+          "id": 1,
+          "status": "backlog",
+          "title": "Checkout reliability"
+        },
+        "execution": {
+          "actor": "nate",
+          "claimed_at": "2026-09-15T16:05:35.990Z",
+          "session": "review-prep"
+        },
+        "id": 2,
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "kind": "task",
+        "parent_id": 1,
+        "pickup_needed": false,
+        "position": 1024,
+        "priority": "high",
+        "project_id": 1,
+        "project_key": "HARBOR",
+        "reference": "HARBOR-2",
+        "result": null,
+        "status": "in_progress",
+        "thread_links": [],
+        "title": "Make checkout retries safe",
+        "updated_at": "2026-09-15T16:05:35.990Z",
+        "updated_by": "nate",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/tasks/2",
+        "version": 5
+      }
+    },
+    {
+      "title": "Submit for review",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/2/submit",
+        "headers": {
+          "X-Actor": "nate",
+          "X-Via": "api",
+          "X-Session": "review-prep",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "submit-for-review"
+        },
+        "body": {
+          "expected_version": 5,
+          "result": {
+            "summary": "Disconnected retries preserve the original order and receipt.",
+            "evidence": [
+              {
+                "label": "Retry regression",
+                "uri": "https://example.org/harbor/runs/43"
+              }
+            ]
+          }
+        }
+      },
+      "status": 200,
+      "response": {
+        "acceptance_criteria": [
+          "Repeating a checkout request creates one order.",
+          "A retry returns the original receipt."
+        ],
+        "archived_at": null,
+        "assignee": "nate",
+        "blocked": false,
+        "blocker_reason": null,
+        "blockers": [],
+        "checkpoint": {
+          "acceptance_remaining": [
+            "A retry after a disconnect creates no second order."
+          ],
+          "branch": "fix/checkout-retries",
+          "commit": "",
+          "evidence": [
+            {
+              "label": "Current test run",
+              "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+            }
+          ],
+          "next_action": "Add a regression for a retry after the connection closes.",
+          "not_applicable_reason": "",
+          "summary": "Retry handling is implemented; the disconnect regression remains.",
+          "workspace": "/work/harbor"
+        },
+        "completion": null,
+        "created_at": "2026-09-15T16:05:35.979Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "dependencies": [],
+        "dependency_ids": [],
+        "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+        "epic": {
+          "id": 1,
+          "status": "backlog",
+          "title": "Checkout reliability"
+        },
+        "execution": null,
+        "id": 2,
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "kind": "task",
+        "parent_id": 1,
+        "pickup_needed": false,
+        "position": 1024,
+        "priority": "high",
+        "project_id": 1,
+        "project_key": "HARBOR",
+        "reference": "HARBOR-2",
+        "result": {
+          "evidence": [
+            {
+              "label": "Retry regression",
+              "uri": "https://example.org/harbor/runs/43"
+            }
+          ],
+          "summary": "Disconnected retries preserve the original order and receipt."
+        },
+        "status": "review",
+        "thread_links": [],
+        "title": "Make checkout retries safe",
+        "updated_at": "2026-09-15T16:05:35.991Z",
+        "updated_by": "nate",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/tasks/2",
+        "version": 6
+      }
+    },
+    {
+      "title": "Accept completed work",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/2/complete",
+        "headers": {
+          "X-Actor": "reviewer",
+          "X-Via": "api",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "accept-completed-work"
+        },
+        "body": {
+          "expected_version": 6,
+          "acceptance_note": "Both retry cases pass, and the receipt stays the same."
+        }
+      },
+      "status": 200,
+      "response": {
+        "acceptance_criteria": [
+          "Repeating a checkout request creates one order.",
+          "A retry returns the original receipt."
+        ],
+        "archived_at": null,
+        "assignee": "nate",
+        "blocked": false,
+        "blocker_reason": null,
+        "blockers": [],
+        "checkpoint": {
+          "acceptance_remaining": [
+            "A retry after a disconnect creates no second order."
+          ],
+          "branch": "fix/checkout-retries",
+          "commit": "",
+          "evidence": [
+            {
+              "label": "Current test run",
+              "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+            }
+          ],
+          "next_action": "Add a regression for a retry after the connection closes.",
+          "not_applicable_reason": "",
+          "summary": "Retry handling is implemented; the disconnect regression remains.",
+          "workspace": "/work/harbor"
+        },
+        "completion": {
+          "acceptance_note": "Both retry cases pass, and the receipt stays the same.",
+          "actor": "reviewer",
+          "completed_at": "2026-09-15T16:05:35.993Z"
+        },
+        "created_at": "2026-09-15T16:05:35.979Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "dependencies": [],
+        "dependency_ids": [],
+        "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+        "epic": {
+          "id": 1,
+          "status": "backlog",
+          "title": "Checkout reliability"
+        },
+        "execution": null,
+        "id": 2,
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "kind": "task",
+        "parent_id": 1,
+        "pickup_needed": false,
+        "position": 1024,
+        "priority": "high",
+        "project_id": 1,
+        "project_key": "HARBOR",
+        "reference": "HARBOR-2",
+        "result": {
+          "evidence": [
+            {
+              "label": "Retry regression",
+              "uri": "https://example.org/harbor/runs/43"
+            }
+          ],
+          "summary": "Disconnected retries preserve the original order and receipt."
+        },
+        "status": "done",
+        "thread_links": [],
+        "title": "Make checkout retries safe",
+        "updated_at": "2026-09-15T16:05:35.993Z",
+        "updated_by": "reviewer",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/tasks/2",
+        "version": 7
+      }
+    },
+    {
+      "title": "Append a review note",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/2/comments",
+        "headers": {
+          "X-Actor": "reviewer",
+          "X-Via": "api",
+          "Content-Type": "application/json",
+          "Idempotency-Key": "append-a-review-note"
+        },
+        "body": {
+          "body": "Accepted after checking the retry evidence."
+        }
+      },
+      "status": 201,
+      "response": {
+        "actor": "reviewer",
+        "body": "Accepted after checking the retry evidence.",
+        "created_at": "2026-09-15T16:05:35.994Z",
+        "id": 1,
+        "session": null,
+        "task_id": 2,
+        "via": "api"
+      }
+    },
+    {
+      "title": "Upload attachment",
+      "request": {
+        "method": "POST",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/2/attachments",
+        "headers": {
+          "Content-Type": "multipart/form-data; boundary=tasktrack-example-boundary",
+          "X-Actor": "reviewer",
+          "Idempotency-Key": "attachment-001"
+        },
+        "multipart": {
+          "filename": "evidence.bin",
+          "comment_id": 1,
+          "size": 47,
+          "sha256": "7e1cf3183b35dbb213f76a580b214b356891ab6f87c5bdf74b03a0a0cfb93a84"
+        }
+      },
+      "status": 201,
+      "response": {
+        "actor": "reviewer",
+        "comment_id": 1,
+        "created_at": "2026-09-15T16:05:35.997Z",
+        "download_url": "/api/v1/attachments/1/content",
+        "filename": "evidence.bin",
+        "id": 1,
+        "media_type": "application/octet-stream",
+        "session": null,
+        "sha256": "7e1cf3183b35dbb213f76a580b214b356891ab6f87c5bdf74b03a0a0cfb93a84",
+        "size": 47,
+        "stored_name": "7e1cf3183b35dbb213f76a580b214b356891ab6f87c5bdf74b03a0a0cfb93a84",
+        "task_id": 2,
+        "via": "api"
+      }
+    },
+    {
+      "title": "Download exact attachment bytes",
+      "request": {
+        "method": "GET",
+        "url": "http://127.0.0.1:63453/api/v1/attachments/1/content",
+        "headers": {}
+      },
+      "status": 200,
+      "response": {
+        "size": 47,
+        "sha256": "7e1cf3183b35dbb213f76a580b214b356891ab6f87c5bdf74b03a0a0cfb93a84",
+        "content_type": "application/octet-stream",
+        "content_disposition": "attachment; filename=\"download\"; filename*=UTF-8''evidence.bin",
+        "exact_bytes_equal": true
+      }
+    },
+    {
+      "title": "Read chronological history",
+      "request": {
+        "method": "GET",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/2/history",
+        "headers": {
+          "X-Actor": "nate",
+          "X-Via": "api"
+        },
+        "body": null
+      },
+      "status": 200,
+      "response": {
+        "has_more": false,
+        "items": [
+          {
+            "actor": "nate",
+            "created_at": "2026-09-15T16:05:35.979Z",
+            "detail": {
+              "after": {
+                "acceptance_criteria": [
+                  "Repeating a checkout request creates one order.",
+                  "A retry returns the original receipt."
+                ],
+                "archived_at": null,
+                "assignee": "codex@harbor",
+                "blocked": false,
+                "blocker_reason": null,
+                "blockers": [],
+                "checkpoint": null,
+                "completion": null,
+                "created_at": "2026-09-15T16:05:35.979Z",
+                "created_by": "nate",
+                "created_via": "api",
+                "dependencies": [],
+                "dependency_ids": [],
+                "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+                "epic": {
+                  "id": 1,
+                  "status": "backlog",
+                  "title": "Checkout reliability"
+                },
+                "execution": null,
+                "id": 2,
+                "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+                "kind": "task",
+                "parent_id": 1,
+                "pickup_needed": false,
+                "position": 2048,
+                "priority": "high",
+                "project_id": 1,
+                "project_key": "HBR",
+                "reference": "HBR-2",
+                "result": null,
+                "status": "backlog",
+                "thread_links": [],
+                "title": "Make checkout retries safe",
+                "updated_at": "2026-09-15T16:05:35.979Z",
+                "updated_by": "nate",
+                "updated_via": "api",
+                "url": "http://127.0.0.1:63453/tasks/2",
+                "version": 1
+              }
+            },
+            "entity_id": 2,
+            "entity_type": "task",
+            "operation": "create",
+            "project_id": 1,
+            "sequence": 3,
+            "session": null,
+            "via": "api"
+          },
+          {
+            "actor": "codex@harbor",
+            "created_at": "2026-09-15T16:05:35.983Z",
+            "detail": {
+              "after": {
+                "acceptance_criteria": [
+                  "Repeating a checkout request creates one order.",
+                  "A retry returns the original receipt."
+                ],
+                "archived_at": null,
+                "assignee": "codex@harbor",
+                "blocked": false,
+                "blocker_reason": null,
+                "blockers": [],
+                "checkpoint": null,
+                "completion": null,
+                "created_at": "2026-09-15T16:05:35.979Z",
+                "created_by": "nate",
+                "created_via": "api",
+                "dependencies": [],
+                "dependency_ids": [],
+                "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+                "epic": {
+                  "id": 1,
+                  "status": "backlog",
+                  "title": "Checkout reliability"
+                },
+                "execution": {
+                  "actor": "codex@harbor",
+                  "claimed_at": "2026-09-15T16:05:35.983Z",
+                  "session": "checkout-1"
+                },
+                "id": 2,
+                "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+                "kind": "task",
+                "parent_id": 1,
+                "pickup_needed": false,
+                "position": 1024,
+                "priority": "high",
+                "project_id": 1,
+                "project_key": "HARBOR",
+                "reference": "HARBOR-2",
+                "result": null,
+                "status": "in_progress",
+                "thread_links": [],
+                "title": "Make checkout retries safe",
+                "updated_at": "2026-09-15T16:05:35.983Z",
+                "updated_by": "codex@harbor",
+                "updated_via": "api",
+                "url": "http://127.0.0.1:63453/tasks/2",
+                "version": 2
+              },
+              "before": {
+                "acceptance_criteria": [
+                  "Repeating a checkout request creates one order.",
+                  "A retry returns the original receipt."
+                ],
+                "archived_at": null,
+                "assignee": "codex@harbor",
+                "blocked": false,
+                "blocker_reason": null,
+                "blockers": [],
+                "checkpoint": null,
+                "completion": null,
+                "created_at": "2026-09-15T16:05:35.979Z",
+                "created_by": "nate",
+                "created_via": "api",
+                "dependencies": [],
+                "dependency_ids": [],
+                "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+                "epic": {
+                  "id": 1,
+                  "status": "backlog",
+                  "title": "Checkout reliability"
+                },
+                "execution": null,
+                "id": 2,
+                "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+                "kind": "task",
+                "parent_id": 1,
+                "pickup_needed": false,
+                "position": 2048,
+                "priority": "high",
+                "project_id": 1,
+                "project_key": "HARBOR",
+                "reference": "HARBOR-2",
+                "result": null,
+                "status": "backlog",
+                "thread_links": [],
+                "title": "Make checkout retries safe",
+                "updated_at": "2026-09-15T16:05:35.979Z",
+                "updated_by": "nate",
+                "updated_via": "api",
+                "url": "http://127.0.0.1:63453/tasks/2",
+                "version": 1
+              },
+              "reason": null
+            },
+            "entity_id": 2,
+            "entity_type": "task",
+            "operation": "claim",
+            "project_id": 1,
+            "sequence": 5,
+            "session": "checkout-1",
+            "via": "api"
+          },
+          {
+            "actor": "codex@harbor",
+            "created_at": "2026-09-15T16:05:35.986Z",
+            "detail": {
+              "after": {
+                "acceptance_criteria": [
+                  "Repeating a checkout request creates one order.",
+                  "A retry returns the original receipt."
+                ],
+                "archived_at": null,
+                "assignee": "codex@harbor",
+                "blocked": false,
+                "blocker_reason": null,
+                "blockers": [],
+                "checkpoint": {
+                  "acceptance_remaining": [
+                    "A retry after a disconnect creates no second order."
+                  ],
+                  "branch": "fix/checkout-retries",
+                  "commit": "",
+                  "evidence": [
+                    {
+                      "label": "Current test run",
+                      "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+                    }
+                  ],
+                  "next_action": "Add a regression for a retry after the connection closes.",
+                  "not_applicable_reason": "",
+                  "summary": "Retry handling is implemented; the disconnect regression remains.",
+                  "workspace": "/work/harbor"
+                },
+                "completion": null,
+                "created_at": "2026-09-15T16:05:35.979Z",
+                "created_by": "nate",
+                "created_via": "api",
+                "dependencies": [],
+                "dependency_ids": [],
+                "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+                "epic": {
+                  "id": 1,
+                  "status": "backlog",
+                  "title": "Checkout reliability"
+                },
+                "execution": {
+                  "actor": "codex@harbor",
+                  "claimed_at": "2026-09-15T16:05:35.983Z",
+                  "session": "checkout-1"
+                },
+                "id": 2,
+                "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+                "kind": "task",
+                "parent_id": 1,
+                "pickup_needed": false,
+                "position": 1024,
+                "priority": "high",
+                "project_id": 1,
+                "project_key": "HARBOR",
+                "reference": "HARBOR-2",
+                "result": null,
+                "status": "in_progress",
+                "thread_links": [],
+                "title": "Make checkout retries safe",
+                "updated_at": "2026-09-15T16:05:35.986Z",
+                "updated_by": "codex@harbor",
+                "updated_via": "api",
+                "url": "http://127.0.0.1:63453/tasks/2",
+                "version": 3
+              },
+              "before": {
+                "acceptance_criteria": [
+                  "Repeating a checkout request creates one order.",
+                  "A retry returns the original receipt."
+                ],
+                "archived_at": null,
+                "assignee": "codex@harbor",
+                "blocked": false,
+                "blocker_reason": null,
+                "blockers": [],
+                "checkpoint": null,
+                "completion": null,
+                "created_at": "2026-09-15T16:05:35.979Z",
+                "created_by": "nate",
+                "created_via": "api",
+                "dependencies": [],
+                "dependency_ids": [],
+                "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+                "epic": {
+                  "id": 1,
+                  "status": "backlog",
+                  "title": "Checkout reliability"
+                },
+                "execution": {
+                  "actor": "codex@harbor",
+                  "claimed_at": "2026-09-15T16:05:35.983Z",
+                  "session": "checkout-1"
+                },
+                "id": 2,
+                "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+                "kind": "task",
+                "parent_id": 1,
+                "pickup_needed": false,
+                "position": 1024,
+                "priority": "high",
+                "project_id": 1,
+                "project_key": "HARBOR",
+                "reference": "HARBOR-2",
+                "result": null,
+                "status": "in_progress",
+                "thread_links": [],
+                "title": "Make checkout retries safe",
+                "updated_at": "2026-09-15T16:05:35.983Z",
+                "updated_by": "codex@harbor",
+                "updated_via": "api",
+                "url": "http://127.0.0.1:63453/tasks/2",
+                "version": 2
+              },
+              "reason": null
+            },
+            "entity_id": 2,
+            "entity_type": "task",
+            "operation": "checkpoint",
+            "project_id": 1,
+            "sequence": 6,
+            "session": "checkout-1",
+            "via": "api"
+          },
+          {
+            "actor": "codex@harbor",
+            "created_at": "2026-09-15T16:05:35.987Z",
+            "detail": {
+              "after": {
+                "acceptance_criteria": [
+                  "Repeating a checkout request creates one order.",
+                  "A retry returns the original receipt."
+                ],
+                "archived_at": null,
+                "assignee": "nate",
+                "blocked": false,
+                "blocker_reason": null,
+                "blockers": [],
+                "checkpoint": {
+                  "acceptance_remaining": [
+                    "A retry after a disconnect creates no second order."
+                  ],
+                  "branch": "fix/checkout-retries",
+                  "commit": "",
+                  "evidence": [
+                    {
+                      "label": "Current test run",
+                      "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+                    }
+                  ],
+                  "next_action": "Add a regression for a retry after the connection closes.",
+                  "not_applicable_reason": "",
+                  "summary": "Retry handling is implemented; the disconnect regression remains.",
+                  "workspace": "/work/harbor"
+                },
+                "completion": null,
+                "created_at": "2026-09-15T16:05:35.979Z",
+                "created_by": "nate",
+                "created_via": "api",
+                "dependencies": [],
+                "dependency_ids": [],
+                "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+                "epic": {
+                  "id": 1,
+                  "status": "backlog",
+                  "title": "Checkout reliability"
+                },
+                "execution": null,
+                "id": 2,
+                "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+                "kind": "task",
+                "parent_id": 1,
+                "pickup_needed": true,
+                "position": 1024,
+                "priority": "high",
+                "project_id": 1,
+                "project_key": "HARBOR",
+                "reference": "HARBOR-2",
+                "result": null,
+                "status": "in_progress",
+                "thread_links": [],
+                "title": "Make checkout retries safe",
+                "updated_at": "2026-09-15T16:05:35.987Z",
+                "updated_by": "codex@harbor",
+                "updated_via": "api",
+                "url": "http://127.0.0.1:63453/tasks/2",
+                "version": 4
+              },
+              "before": {
+                "acceptance_criteria": [
+                  "Repeating a checkout request creates one order.",
+                  "A retry returns the original receipt."
+                ],
+                "archived_at": null,
+                "assignee": "codex@harbor",
+                "blocked": false,
+                "blocker_reason": null,
+                "blockers": [],
+                "checkpoint": {
+                  "acceptance_remaining": [
+                    "A retry after a disconnect creates no second order."
+                  ],
+                  "branch": "fix/checkout-retries",
+                  "commit": "",
+                  "evidence": [
+                    {
+                      "label": "Current test run",
+                      "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+                    }
+                  ],
+                  "next_action": "Add a regression for a retry after the connection closes.",
+                  "not_applicable_reason": "",
+                  "summary": "Retry handling is implemented; the disconnect regression remains.",
+                  "workspace": "/work/harbor"
+                },
+                "completion": null,
+                "created_at": "2026-09-15T16:05:35.979Z",
+                "created_by": "nate",
+                "created_via": "api",
+                "dependencies": [],
+                "dependency_ids": [],
+                "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+                "epic": {
+                  "id": 1,
+                  "status": "backlog",
+                  "title": "Checkout reliability"
+                },
+                "execution": {
+                  "actor": "codex@harbor",
+                  "claimed_at": "2026-09-15T16:05:35.983Z",
+                  "session": "checkout-1"
+                },
+                "id": 2,
+                "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+                "kind": "task",
+                "parent_id": 1,
+                "pickup_needed": false,
+                "position": 1024,
+                "priority": "high",
+                "project_id": 1,
+                "project_key": "HARBOR",
+                "reference": "HARBOR-2",
+                "result": null,
+                "status": "in_progress",
+                "thread_links": [],
+                "title": "Make checkout retries safe",
+                "updated_at": "2026-09-15T16:05:35.986Z",
+                "updated_by": "codex@harbor",
+                "updated_via": "api",
+                "url": "http://127.0.0.1:63453/tasks/2",
+                "version": 3
+              },
+              "reason": null
+            },
+            "entity_id": 2,
+            "entity_type": "task",
+            "operation": "handoff",
+            "project_id": 1,
+            "sequence": 7,
+            "session": "checkout-1",
+            "via": "api"
+          },
+          {
+            "actor": "nate",
+            "created_at": "2026-09-15T16:05:35.990Z",
+            "detail": {
+              "after": {
+                "acceptance_criteria": [
+                  "Repeating a checkout request creates one order.",
+                  "A retry returns the original receipt."
+                ],
+                "archived_at": null,
+                "assignee": "nate",
+                "blocked": false,
+                "blocker_reason": null,
+                "blockers": [],
+                "checkpoint": {
+                  "acceptance_remaining": [
+                    "A retry after a disconnect creates no second order."
+                  ],
+                  "branch": "fix/checkout-retries",
+                  "commit": "",
+                  "evidence": [
+                    {
+                      "label": "Current test run",
+                      "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+                    }
+                  ],
+                  "next_action": "Add a regression for a retry after the connection closes.",
+                  "not_applicable_reason": "",
+                  "summary": "Retry handling is implemented; the disconnect regression remains.",
+                  "workspace": "/work/harbor"
+                },
+                "completion": null,
+                "created_at": "2026-09-15T16:05:35.979Z",
+                "created_by": "nate",
+                "created_via": "api",
+                "dependencies": [],
+                "dependency_ids": [],
+                "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+                "epic": {
+                  "id": 1,
+                  "status": "backlog",
+                  "title": "Checkout reliability"
+                },
+                "execution": {
+                  "actor": "nate",
+                  "claimed_at": "2026-09-15T16:05:35.990Z",
+                  "session": "review-prep"
+                },
+                "id": 2,
+                "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+                "kind": "task",
+                "parent_id": 1,
+                "pickup_needed": false,
+                "position": 1024,
+                "priority": "high",
+                "project_id": 1,
+                "project_key": "HARBOR",
+                "reference": "HARBOR-2",
+                "result": null,
+                "status": "in_progress",
+                "thread_links": [],
+                "title": "Make checkout retries safe",
+                "updated_at": "2026-09-15T16:05:35.990Z",
+                "updated_by": "nate",
+                "updated_via": "api",
+                "url": "http://127.0.0.1:63453/tasks/2",
+                "version": 5
+              },
+              "before": {
+                "acceptance_criteria": [
+                  "Repeating a checkout request creates one order.",
+                  "A retry returns the original receipt."
+                ],
+                "archived_at": null,
+                "assignee": "nate",
+                "blocked": false,
+                "blocker_reason": null,
+                "blockers": [],
+                "checkpoint": {
+                  "acceptance_remaining": [
+                    "A retry after a disconnect creates no second order."
+                  ],
+                  "branch": "fix/checkout-retries",
+                  "commit": "",
+                  "evidence": [
+                    {
+                      "label": "Current test run",
+                      "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+                    }
+                  ],
+                  "next_action": "Add a regression for a retry after the connection closes.",
+                  "not_applicable_reason": "",
+                  "summary": "Retry handling is implemented; the disconnect regression remains.",
+                  "workspace": "/work/harbor"
+                },
+                "completion": null,
+                "created_at": "2026-09-15T16:05:35.979Z",
+                "created_by": "nate",
+                "created_via": "api",
+                "dependencies": [],
+                "dependency_ids": [],
+                "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+                "epic": {
+                  "id": 1,
+                  "status": "backlog",
+                  "title": "Checkout reliability"
+                },
+                "execution": null,
+                "id": 2,
+                "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+                "kind": "task",
+                "parent_id": 1,
+                "pickup_needed": true,
+                "position": 1024,
+                "priority": "high",
+                "project_id": 1,
+                "project_key": "HARBOR",
+                "reference": "HARBOR-2",
+                "result": null,
+                "status": "in_progress",
+                "thread_links": [],
+                "title": "Make checkout retries safe",
+                "updated_at": "2026-09-15T16:05:35.987Z",
+                "updated_by": "codex@harbor",
+                "updated_via": "api",
+                "url": "http://127.0.0.1:63453/tasks/2",
+                "version": 4
+              },
+              "reason": null
+            },
+            "entity_id": 2,
+            "entity_type": "task",
+            "operation": "claim",
+            "project_id": 1,
+            "sequence": 8,
+            "session": "review-prep",
+            "via": "api"
+          },
+          {
+            "actor": "nate",
+            "created_at": "2026-09-15T16:05:35.991Z",
+            "detail": {
+              "after": {
+                "acceptance_criteria": [
+                  "Repeating a checkout request creates one order.",
+                  "A retry returns the original receipt."
+                ],
+                "archived_at": null,
+                "assignee": "nate",
+                "blocked": false,
+                "blocker_reason": null,
+                "blockers": [],
+                "checkpoint": {
+                  "acceptance_remaining": [
+                    "A retry after a disconnect creates no second order."
+                  ],
+                  "branch": "fix/checkout-retries",
+                  "commit": "",
+                  "evidence": [
+                    {
+                      "label": "Current test run",
+                      "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+                    }
+                  ],
+                  "next_action": "Add a regression for a retry after the connection closes.",
+                  "not_applicable_reason": "",
+                  "summary": "Retry handling is implemented; the disconnect regression remains.",
+                  "workspace": "/work/harbor"
+                },
+                "completion": null,
+                "created_at": "2026-09-15T16:05:35.979Z",
+                "created_by": "nate",
+                "created_via": "api",
+                "dependencies": [],
+                "dependency_ids": [],
+                "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+                "epic": {
+                  "id": 1,
+                  "status": "backlog",
+                  "title": "Checkout reliability"
+                },
+                "execution": null,
+                "id": 2,
+                "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+                "kind": "task",
+                "parent_id": 1,
+                "pickup_needed": false,
+                "position": 1024,
+                "priority": "high",
+                "project_id": 1,
+                "project_key": "HARBOR",
+                "reference": "HARBOR-2",
+                "result": {
+                  "evidence": [
+                    {
+                      "label": "Retry regression",
+                      "uri": "https://example.org/harbor/runs/43"
+                    }
+                  ],
+                  "summary": "Disconnected retries preserve the original order and receipt."
+                },
+                "status": "review",
+                "thread_links": [],
+                "title": "Make checkout retries safe",
+                "updated_at": "2026-09-15T16:05:35.991Z",
+                "updated_by": "nate",
+                "updated_via": "api",
+                "url": "http://127.0.0.1:63453/tasks/2",
+                "version": 6
+              },
+              "before": {
+                "acceptance_criteria": [
+                  "Repeating a checkout request creates one order.",
+                  "A retry returns the original receipt."
+                ],
+                "archived_at": null,
+                "assignee": "nate",
+                "blocked": false,
+                "blocker_reason": null,
+                "blockers": [],
+                "checkpoint": {
+                  "acceptance_remaining": [
+                    "A retry after a disconnect creates no second order."
+                  ],
+                  "branch": "fix/checkout-retries",
+                  "commit": "",
+                  "evidence": [
+                    {
+                      "label": "Current test run",
+                      "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+                    }
+                  ],
+                  "next_action": "Add a regression for a retry after the connection closes.",
+                  "not_applicable_reason": "",
+                  "summary": "Retry handling is implemented; the disconnect regression remains.",
+                  "workspace": "/work/harbor"
+                },
+                "completion": null,
+                "created_at": "2026-09-15T16:05:35.979Z",
+                "created_by": "nate",
+                "created_via": "api",
+                "dependencies": [],
+                "dependency_ids": [],
+                "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+                "epic": {
+                  "id": 1,
+                  "status": "backlog",
+                  "title": "Checkout reliability"
+                },
+                "execution": {
+                  "actor": "nate",
+                  "claimed_at": "2026-09-15T16:05:35.990Z",
+                  "session": "review-prep"
+                },
+                "id": 2,
+                "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+                "kind": "task",
+                "parent_id": 1,
+                "pickup_needed": false,
+                "position": 1024,
+                "priority": "high",
+                "project_id": 1,
+                "project_key": "HARBOR",
+                "reference": "HARBOR-2",
+                "result": null,
+                "status": "in_progress",
+                "thread_links": [],
+                "title": "Make checkout retries safe",
+                "updated_at": "2026-09-15T16:05:35.990Z",
+                "updated_by": "nate",
+                "updated_via": "api",
+                "url": "http://127.0.0.1:63453/tasks/2",
+                "version": 5
+              },
+              "reason": null
+            },
+            "entity_id": 2,
+            "entity_type": "task",
+            "operation": "submit",
+            "project_id": 1,
+            "sequence": 9,
+            "session": "review-prep",
+            "via": "api"
+          },
+          {
+            "actor": "reviewer",
+            "created_at": "2026-09-15T16:05:35.993Z",
+            "detail": {
+              "after": {
+                "acceptance_criteria": [
+                  "Repeating a checkout request creates one order.",
+                  "A retry returns the original receipt."
+                ],
+                "archived_at": null,
+                "assignee": "nate",
+                "blocked": false,
+                "blocker_reason": null,
+                "blockers": [],
+                "checkpoint": {
+                  "acceptance_remaining": [
+                    "A retry after a disconnect creates no second order."
+                  ],
+                  "branch": "fix/checkout-retries",
+                  "commit": "",
+                  "evidence": [
+                    {
+                      "label": "Current test run",
+                      "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+                    }
+                  ],
+                  "next_action": "Add a regression for a retry after the connection closes.",
+                  "not_applicable_reason": "",
+                  "summary": "Retry handling is implemented; the disconnect regression remains.",
+                  "workspace": "/work/harbor"
+                },
+                "completion": {
+                  "acceptance_note": "Both retry cases pass, and the receipt stays the same.",
+                  "actor": "reviewer",
+                  "completed_at": "2026-09-15T16:05:35.993Z"
+                },
+                "created_at": "2026-09-15T16:05:35.979Z",
+                "created_by": "nate",
+                "created_via": "api",
+                "dependencies": [],
+                "dependency_ids": [],
+                "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+                "epic": {
+                  "id": 1,
+                  "status": "backlog",
+                  "title": "Checkout reliability"
+                },
+                "execution": null,
+                "id": 2,
+                "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+                "kind": "task",
+                "parent_id": 1,
+                "pickup_needed": false,
+                "position": 1024,
+                "priority": "high",
+                "project_id": 1,
+                "project_key": "HARBOR",
+                "reference": "HARBOR-2",
+                "result": {
+                  "evidence": [
+                    {
+                      "label": "Retry regression",
+                      "uri": "https://example.org/harbor/runs/43"
+                    }
+                  ],
+                  "summary": "Disconnected retries preserve the original order and receipt."
+                },
+                "status": "done",
+                "thread_links": [],
+                "title": "Make checkout retries safe",
+                "updated_at": "2026-09-15T16:05:35.993Z",
+                "updated_by": "reviewer",
+                "updated_via": "api",
+                "url": "http://127.0.0.1:63453/tasks/2",
+                "version": 7
+              },
+              "before": {
+                "acceptance_criteria": [
+                  "Repeating a checkout request creates one order.",
+                  "A retry returns the original receipt."
+                ],
+                "archived_at": null,
+                "assignee": "nate",
+                "blocked": false,
+                "blocker_reason": null,
+                "blockers": [],
+                "checkpoint": {
+                  "acceptance_remaining": [
+                    "A retry after a disconnect creates no second order."
+                  ],
+                  "branch": "fix/checkout-retries",
+                  "commit": "",
+                  "evidence": [
+                    {
+                      "label": "Current test run",
+                      "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+                    }
+                  ],
+                  "next_action": "Add a regression for a retry after the connection closes.",
+                  "not_applicable_reason": "",
+                  "summary": "Retry handling is implemented; the disconnect regression remains.",
+                  "workspace": "/work/harbor"
+                },
+                "completion": null,
+                "created_at": "2026-09-15T16:05:35.979Z",
+                "created_by": "nate",
+                "created_via": "api",
+                "dependencies": [],
+                "dependency_ids": [],
+                "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+                "epic": {
+                  "id": 1,
+                  "status": "backlog",
+                  "title": "Checkout reliability"
+                },
+                "execution": null,
+                "id": 2,
+                "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+                "kind": "task",
+                "parent_id": 1,
+                "pickup_needed": false,
+                "position": 1024,
+                "priority": "high",
+                "project_id": 1,
+                "project_key": "HARBOR",
+                "reference": "HARBOR-2",
+                "result": {
+                  "evidence": [
+                    {
+                      "label": "Retry regression",
+                      "uri": "https://example.org/harbor/runs/43"
+                    }
+                  ],
+                  "summary": "Disconnected retries preserve the original order and receipt."
+                },
+                "status": "review",
+                "thread_links": [],
+                "title": "Make checkout retries safe",
+                "updated_at": "2026-09-15T16:05:35.991Z",
+                "updated_by": "nate",
+                "updated_via": "api",
+                "url": "http://127.0.0.1:63453/tasks/2",
+                "version": 6
+              },
+              "reason": null
+            },
+            "entity_id": 2,
+            "entity_type": "task",
+            "operation": "complete",
+            "project_id": 1,
+            "sequence": 10,
+            "session": null,
+            "via": "api"
+          },
+          {
+            "actor": "reviewer",
+            "created_at": "2026-09-15T16:05:35.994Z",
+            "detail": {
+              "actor": "reviewer",
+              "body": "Accepted after checking the retry evidence.",
+              "created_at": "2026-09-15T16:05:35.994Z",
+              "id": 1,
+              "session": null,
+              "task_id": 2,
+              "via": "api"
+            },
+            "entity_id": 2,
+            "entity_type": "task",
+            "operation": "comment",
+            "project_id": 1,
+            "sequence": 11,
+            "session": null,
+            "via": "api"
+          },
+          {
+            "actor": "reviewer",
+            "created_at": "2026-09-15T16:05:35.997Z",
+            "detail": {
+              "actor": "reviewer",
+              "comment_id": 1,
+              "created_at": "2026-09-15T16:05:35.997Z",
+              "download_url": "/api/v1/attachments/1/content",
+              "filename": "evidence.bin",
+              "id": 1,
+              "media_type": "application/octet-stream",
+              "session": null,
+              "sha256": "7e1cf3183b35dbb213f76a580b214b356891ab6f87c5bdf74b03a0a0cfb93a84",
+              "size": 47,
+              "stored_name": "7e1cf3183b35dbb213f76a580b214b356891ab6f87c5bdf74b03a0a0cfb93a84",
+              "task_id": 2,
+              "via": "api"
+            },
+            "entity_id": 2,
+            "entity_type": "task",
+            "operation": "attachment",
+            "project_id": 1,
+            "sequence": 12,
+            "session": null,
+            "via": "api"
+          }
+        ],
+        "next_cursor": null,
+        "total": 9
+      }
+    },
+    {
+      "title": "Final record",
+      "request": {
+        "method": "GET",
+        "url": "http://127.0.0.1:63453/api/v1/tasks/2",
+        "headers": {
+          "X-Actor": "nate",
+          "X-Via": "api"
+        },
+        "body": null
+      },
+      "status": 200,
+      "response": {
+        "acceptance_criteria": [
+          "Repeating a checkout request creates one order.",
+          "A retry returns the original receipt."
+        ],
+        "archived_at": null,
+        "assignee": "nate",
+        "blocked": false,
+        "blocker_reason": null,
+        "blockers": [],
+        "checkpoint": {
+          "acceptance_remaining": [
+            "A retry after a disconnect creates no second order."
+          ],
+          "branch": "fix/checkout-retries",
+          "commit": "",
+          "evidence": [
+            {
+              "label": "Current test run",
+              "uri": "file:///work/harbor/artifacts/retry-tests.txt"
+            }
+          ],
+          "next_action": "Add a regression for a retry after the connection closes.",
+          "not_applicable_reason": "",
+          "summary": "Retry handling is implemented; the disconnect regression remains.",
+          "workspace": "/work/harbor"
+        },
+        "completion": {
+          "acceptance_note": "Both retry cases pass, and the receipt stays the same.",
+          "actor": "reviewer",
+          "completed_at": "2026-09-15T16:05:35.993Z"
+        },
+        "created_at": "2026-09-15T16:05:35.979Z",
+        "created_by": "nate",
+        "created_via": "api",
+        "dependencies": [],
+        "dependency_ids": [],
+        "description_markdown": "A disconnected client retries checkout. Preserve the original order and receipt.",
+        "epic": {
+          "id": 1,
+          "status": "backlog",
+          "title": "Checkout reliability"
+        },
+        "execution": null,
+        "id": 2,
+        "instance_id": "36fb2c49-c4ac-49ba-b694-10eddf4cde1c",
+        "kind": "task",
+        "parent_id": 1,
+        "pickup_needed": false,
+        "position": 1024,
+        "priority": "high",
+        "project_id": 1,
+        "project_key": "HARBOR",
+        "reference": "HARBOR-2",
+        "result": {
+          "evidence": [
+            {
+              "label": "Retry regression",
+              "uri": "https://example.org/harbor/runs/43"
+            }
+          ],
+          "summary": "Disconnected retries preserve the original order and receipt."
+        },
+        "status": "done",
+        "thread_links": [],
+        "title": "Make checkout retries safe",
+        "updated_at": "2026-09-15T16:05:35.993Z",
+        "updated_by": "reviewer",
+        "updated_via": "api",
+        "url": "http://127.0.0.1:63453/tasks/2",
+        "version": 7
+      }
+    }
+  ]
+}

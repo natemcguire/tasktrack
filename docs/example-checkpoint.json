@@ -1,0 +1,8 @@
+{
+  "summary": "Retry handling is implemented; the disconnect regression remains.",
+  "next_action": "Add a regression for a retry after the connection closes.",
+  "workspace": "/work/harbor",
+  "branch": "fix/checkout-retries",
+  "acceptance_remaining": ["A retry after a disconnect creates no second order."],
+  "evidence": [{"label": "Current test run", "uri": "file:///work/harbor/artifacts/retry-tests.txt"}]
+}

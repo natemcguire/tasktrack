@@ -1,0 +1,12 @@
+{
+  "name": "tasktrack-browser-checks",
+  "private": true,
+  "scripts": {
+    "start": "python3 -m tasktrack serve",
+    "test:browser": "node tests/browser.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "prettier": "^3.9.6"
+  }
+}

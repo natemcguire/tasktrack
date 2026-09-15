@@ -1,0 +1,23 @@
+{
+  "checked_at": "2026-09-15T16:05:39.217Z",
+  "browser": "153.0.8010.12",
+  "viewport": {
+    "desktop": [
+      1512,
+      1100
+    ],
+    "mobile": [
+      390,
+      844
+    ]
+  },
+  "screenshots": [
+    "board.png",
+    "task-detail.png",
+    "history.png",
+    "mobile-board.png",
+    "mobile-detail.png"
+  ],
+  "scenarios": 7,
+  "result": "passed"
+}

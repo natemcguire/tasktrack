@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tasktrack · Local work, lasting context</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to work</a>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Project navigation">
+        <a class="brand" href="/" data-nav
+          ><span class="brand-mark" aria-hidden="true">t.</span>tasktrack</a
+        >
+        <p class="tagline">A place for the work.</p>
+        <div class="nav-heading">
+          <span>PROJECTS</span
+          ><button
+            id="add-project"
+            class="icon-button"
+            aria-label="Create project"
+          >
+            +
+          </button>
+        </div>
+        <nav id="projects" aria-label="Projects"></nav>
+        <div class="sidebar-foot">
+          <span class="local-dot" aria-hidden="true"></span> Local workspace
+          <small>Your context stays here.</small>
+        </div>
+      </aside>
+      <div class="workspace">
+        <header class="topbar">
+          <span id="breadcrumb">Your workspace</span>
+          <div class="identity">
+            <label
+              >Acting as
+              <input
+                id="actor"
+                placeholder="Your name or agent address"
+                autocomplete="off" /></label
+            ><label
+              >Session
+              <input
+                id="session"
+                placeholder="Optional for people"
+                autocomplete="off"
+            /></label>
+          </div>
+        </header>
+        <main id="main" tabindex="-1">
+          <p class="loading">Opening your workspace…</p>
+        </main>
+        <div id="toast" role="status" aria-live="polite"></div>
+      </div>
+    </div>
+    <dialog id="editor" aria-labelledby="dialog-title">
+      <form id="editor-form">
+        <div class="dialog-head">
+          <h2 id="dialog-title"></h2>
+          <button
+            type="button"
+            id="close-dialog"
+            class="icon-button"
+            aria-label="Close dialog"
+          >
+            ×
+          </button>
+        </div>
+        <div id="dialog-fields"></div>
+        <div id="form-error" role="alert"></div>
+        <div class="dialog-foot">
+          <button type="button" id="cancel-dialog" class="button">Cancel</button
+          ><button type="submit" id="save-dialog" class="button primary">
+            Save
+          </button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>
