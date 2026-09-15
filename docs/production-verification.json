@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-15T20:05:00Z",
+  "checked_at": "2026-09-15T20:06:57.728976+00:00",
   "url": "https://tasks.eastbayprojects.com",
   "source_commit": "b9f535e8cf92a3dc99ca5e0ced023ed6aed00685",
   "cloudflare_worker_version": "e5f95676-2931-407f-bd3a-aaf271de39a7",
@@ -13,8 +13,14 @@
     "invalid_magic_link": 400,
     "r2_public_access": false,
     "email_sending_domain_enabled": true,
-    "email_dns": ["DKIM", "SPF", "DMARC"]
+    "email_dns": [
+      "DKIM",
+      "SPF",
+      "DMARC"
+    ],
+    "installed_cli_rejects_invalid_token": true
   },
   "email_delivery": "Not yet checked against a real inbox. Awaiting a test recipient.",
-  "local_behavior_checks": "hosted-verification.json"
+  "local_behavior_checks": "hosted-verification.json",
+  "cli_source_commit": "1dd5c7cdce8a55c96807edbf5b072ad5cbcf8694"
 }
