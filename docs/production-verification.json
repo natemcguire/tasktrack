@@ -1,0 +1,20 @@
+{
+  "checked_at": "2026-09-15T20:05:00Z",
+  "url": "https://tasks.eastbayprojects.com",
+  "source_commit": "b9f535e8cf92a3dc99ca5e0ced023ed6aed00685",
+  "cloudflare_worker_version": "e5f95676-2931-407f-bd3a-aaf271de39a7",
+  "checks": {
+    "https_health_with_remote_d1": 200,
+    "signup_page": 200,
+    "browser_signin_page": 200,
+    "password_fields": 0,
+    "browser_javascript_errors": [],
+    "unauthenticated_projects_api": 401,
+    "invalid_magic_link": 400,
+    "r2_public_access": false,
+    "email_sending_domain_enabled": true,
+    "email_dns": ["DKIM", "SPF", "DMARC"]
+  },
+  "email_delivery": "Not yet checked against a real inbox. Awaiting a test recipient.",
+  "local_behavior_checks": "hosted-verification.json"
+}

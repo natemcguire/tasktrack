@@ -101,6 +101,8 @@ revocation, customer pages, mobile layout and the remote CLI. No external email 
 sent. Results: [hosted verification](hosted-verification.json),
 [sign-in](screenshots/hosted-signin.png), [sharing](screenshots/hosted-share.png),
 [customer view](screenshots/hosted-customer-mobile.png).
+The [production check](production-verification.json) records the deployed version,
+live HTTPS/browser checks and email-delivery verification status.
 
 ## Deploy
 
