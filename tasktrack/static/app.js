@@ -1,4 +1,6 @@
 "use strict";
+const hosted = document.querySelector('meta[name="tt-context"]');
+const account = hosted ? JSON.parse(hosted.content) : null;
 const $ = (q, root = document) => root.querySelector(q);
 const esc = (value) =>
   String(value ?? "").replace(
@@ -26,8 +28,22 @@ const state = {
 };
 const actor = $("#actor"),
   session = $("#session");
-actor.value = localStorage.getItem("tt_actor") || "";
-session.value = localStorage.getItem("tt_session") || "";
+actor.value = account?.actor || localStorage.getItem("tt_actor") || "";
+session.value = account
+  ? sessionStorage.getItem("tt_browser_session") || crypto.randomUUID()
+  : localStorage.getItem("tt_session") || "";
+if (account) {
+  sessionStorage.setItem("tt_browser_session", session.value);
+  actor.readOnly = true;
+  actor.closest("label").hidden = true;
+  session.closest("label").hidden = true;
+  const link = document.createElement("a");
+  link.href = "/account";
+  link.className = "button";
+  link.textContent = "Account";
+  document.querySelector(".identity").append(link);
+  document.querySelector(".sidebar-foot").textContent = account.workspace_name;
+}
 actor.addEventListener("change", () =>
   localStorage.setItem("tt_actor", actor.value.trim()),
 );
@@ -50,6 +66,10 @@ async function api(
   { method = "GET", body, requestId = crypto.randomUUID() } = {},
 ) {
   const headers = { "X-Via": "ui" };
+  if (account) {
+    headers["X-CSRF-Token"] = account.csrf;
+    headers["X-Workspace-ID"] = account.workspace_id;
+  }
   if (actor.value.trim()) headers["X-Actor"] = actor.value.trim();
   if (session.value.trim()) headers["X-Session"] = session.value.trim();
   if (method !== "GET") {
@@ -242,7 +262,7 @@ function showForm(
   title,
   html,
   save,
-  { record, recordPath, button = "Save" } = {},
+  { record, recordPath, button = "Save", keepOpen = false } = {},
 ) {
   const dialog = $("#editor"),
     form = $("#editor-form");
@@ -250,6 +270,8 @@ function showForm(
   $("#dialog-fields").innerHTML = html;
   $("#form-error").innerHTML = "";
   $("#save-dialog").textContent = button;
+  $("#save-dialog").hidden = false;
+  $("#cancel-dialog").textContent = "Cancel";
   $("#save-dialog").disabled = false;
   let version = record?.version,
     requestId = crypto.randomUUID(),
@@ -271,8 +293,10 @@ function showForm(
     lastBody = serialized;
     try {
       await save(data, version, requestId);
-      dialog.close();
-      await route();
+      if (!keepOpen) {
+        dialog.close();
+        await route();
+      }
     } catch (error) {
       $("#form-error").innerHTML = `<p>${esc(errorText(error))}</p>`;
       if (error.code === "version_conflict" && recordPath) {
@@ -926,6 +950,13 @@ async function detail(identifier) {
     `<div class="page-head"><div class="task-heading"><p class="eyebrow">${esc(task.reference)} / ${task.kind.toUpperCase()}${task.archived_at ? " / ARCHIVED" : ""}</p><h1>${esc(task.title)}</h1><p class="page-description">${esc(states[task.status])} · Updated ${esc(date(task.updated_at))}</p></div><div class="head-actions">${!task.archived_at ? '<button class="button" id="edit-task">Edit task</button><button class="button primary" id="move-task">Move</button>' : ""}</div></div>${task.blocked ? `<div class="callout warning"><strong>Blocked</strong><br>${task.blockers.map(esc).join("<br>")}</div>` : ""}<div class="inline-actions history-controls">${actions.map((a) => `<button class="button ${a === "archive" ? "quiet" : ""}" data-action="${a}">${labels[a]}</button>`).join("")}</div><div class="task-layout"><div class="task-content"><section class="task-section"><div class="section-head"><h2>${task.kind === "epic" ? "Epic PRD" : "Description"}</h2></div><div class="markdown">${markdown(task.description_markdown) || '<p class="section-empty">This is a draft. Add a description before starting work.</p>'}</div></section><section class="task-section"><div class="section-head"><h2>Acceptance criteria</h2></div>${task.acceptance_criteria.length ? `<ul class="criteria">${task.acceptance_criteria.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : '<p class="section-empty">What will make this task done? Add criteria in Edit task.</p>'}</section>${task.kind === "epic" ? `<section class="task-section"><div class="section-head"><h2>Child tasks · ${task.progress.done}/${task.progress.total} complete</h2></div><div id="children"></div></section>` : ""}<section class="task-section"><div class="section-head"><h2>Latest checkpoint</h2></div>${task.checkpoint ? `<div class="markdown">${markdown(task.checkpoint.summary)}</div><div class="callout"><strong>Next action</strong><br>${esc(task.checkpoint.next_action)}</div><p class="mono">${esc([task.checkpoint.workspace, task.checkpoint.branch, task.checkpoint.commit].filter(Boolean).join(" · ") || task.checkpoint.not_applicable_reason)}</p>${task.checkpoint.acceptance_remaining.length ? `<h3>Still remaining</h3><ul>${task.checkpoint.acceptance_remaining.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}${evidenceHTML(task.checkpoint.evidence)}` : '<p class="section-empty">Save a checkpoint so the next session knows where to begin.</p>'}</section>${task.result ? `<section class="task-section"><div class="section-head"><h2>Result & evidence</h2></div><div class="markdown">${markdown(task.result.summary)}</div>${evidenceHTML(task.result.evidence)}${task.completion ? `<div class="callout"><strong>Accepted by ${esc(task.completion.actor)}</strong><p>${esc(task.completion.acceptance_note)}</p><small>${esc(date(task.completion.completed_at))} · Retained completion record</small></div>` : ""}</section>` : ""}<section class="task-section"><div class="section-head"><h2>Comments</h2><button class="button" id="add-comment">Add comment</button></div><div id="comments"></div></section><section class="task-section"><div class="section-head"><h2>Attachments</h2><button class="button" id="add-attachment">Attach file</button></div><div id="attachments"></div></section><section class="task-section" id="history-section"><div class="section-head"><h2>History</h2><a href="#history-section" class="small">Permanent record</a></div><div id="task-history"></div></section></div><aside class="task-aside" aria-label="Task properties">${property("Status", esc(states[task.status]) + (task.pickup_needed ? '<div class="pickup">Ready for pickup</div>' : ""))}${property("Assignee", esc(task.assignee || "Unassigned"))}${property("Priority", esc(task.priority))}${property("Execution", task.execution ? `${esc(task.execution.actor)}<br><span class="mono">${esc(task.execution.session)}</span><br><small>Claimed ${esc(date(task.execution.claimed_at))}${task.execution.resumed_at ? `<br>Resumed ${esc(date(task.execution.resumed_at))}` : ""}</small>` : "No execution claim")}${property("Project", `<a href="/projects/${esc(state.project.key)}" data-nav>${esc(state.project.name)}</a><br><button class="button quiet" id="show-prd">Read project brief</button>`)}${task.epic ? property("Epic", `<a href="/tasks/${task.epic.id}" data-nav>${esc(task.epic.title)}</a>`) : ""}${property("Dependencies", task.dependencies.length ? task.dependencies.map((d) => `<a href="/tasks/${d.id}" data-nav>${esc(d.title)}</a><br><small>${esc(states[d.status])}</small>`).join("<br>") : "None")}${property("Conversations", task.thread_links.length ? task.thread_links.map((l) => (l.url ? `<a href="${safeLink(l.url)}" target="_blank" rel="noopener noreferrer">Open conversation${l.primary ? " · primary" : ""}</a>` : `<span>${esc(l.thread_id)}<br><small>URL not configured · ${esc(l.project)}</small></span>`)).join("<br>") : "No linked threads")}${property("Record", `Version ${task.version}<br><small>Created by ${esc(task.created_by)} via ${esc(task.created_via)}<br>${esc(date(task.created_at))}</small>`)}</aside></div>`;
   if ($("#edit-task"))
     $("#edit-task").onclick = () => taskForm(task, task.kind);
+  if (account) {
+    const share = document.createElement("button");
+    share.className = "button";
+    share.textContent = "Share with customer";
+    share.onclick = () => shareTask(task);
+    $(".head-actions").append(share);
+  }
   if ($("#move-task")) $("#move-task").onclick = () => moveForm(task);
   document
     .querySelectorAll("[data-action]")
@@ -1051,6 +1082,152 @@ async function loadChildren(cursor = null, append = false) {
     );
     target.querySelector("button").onclick = () =>
       loadChildren(page.next_cursor, true);
+  }
+}
+function taskPreview(task, summary) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1200;
+  canvas.height = 630;
+  const c = canvas.getContext("2d");
+  c.fillStyle = "#edf3ef";
+  c.fillRect(0, 0, 1200, 630);
+  c.fillStyle = "#ffffff";
+  c.beginPath();
+  c.roundRect(20, 20, 1160, 590, 20);
+  c.fill();
+  c.fillStyle = "#176b52";
+  c.font = "600 22px system-ui";
+  c.fillText(task.reference + "  /  TASK UPDATE", 64, 82);
+  c.fillStyle = "#edf5f1";
+  c.beginPath();
+  c.roundRect(64, 110, 220, 44, 22);
+  c.fill();
+  c.fillStyle = "#176b52";
+  c.font = "600 22px system-ui";
+  c.fillText(states[task.status], 85, 140);
+  function lines(text, y, font, color, height, max) {
+    c.font = font;
+    c.fillStyle = color;
+    const output = [];
+    let line = "";
+    for (const word of text.trim().split(/\s+/)) {
+      const candidate = line ? line + " " + word : word;
+      if (line && c.measureText(candidate).width > 1060) {
+        output.push(line);
+        line = "";
+      }
+      if (line) line += " ";
+      for (const character of word) {
+        if (c.measureText(line + character).width > 1060) {
+          output.push(line);
+          line = "";
+        }
+        line += character;
+      }
+    }
+    if (line) output.push(line);
+    output
+      .slice(0, max)
+      .forEach((value, index) =>
+        c.fillText(
+          index === max - 1 && output.length > max
+            ? value.slice(0, -2) + "…"
+            : value.trim(),
+          64,
+          y + index * height,
+        ),
+      );
+  }
+  lines(task.title, 222, "700 48px system-ui", "#242a2c", 61, 3);
+  lines(summary, 422, "400 28px system-ui", "#596761", 39, 3);
+  c.fillStyle = "#176b52";
+  c.font = "600 23px system-ui";
+  c.fillText("tasktrack", 64, 568);
+  c.fillStyle = "#687175";
+  c.font = "400 20px system-ui";
+  c.fillText("Open the link for the latest status", 785, 568);
+  return canvas.toDataURL("image/png");
+}
+async function shareTask(task) {
+  try {
+    const shares = await api(`/tasks/${task.id}/shares`);
+    const existing = shares.items
+      .map(
+        (s) =>
+          `<div class="share-link-row"><a href="${esc(s.url)}" target="_blank" rel="noopener">Open shared task</a><button type="button" class="button quiet" data-revoke-share="${esc(s.id)}">Revoke</button></div>`,
+      )
+      .join("");
+    showForm(
+      "Share with customer",
+      `<p class="muted">Share this task’s title, current status, and your update. Anyone with the link can view it.</p>${field("summary", "Customer update", "", "textarea", "Write a short update for the customer.")}<img class="share-image" id="share-preview" alt="Task preview"><div id="existing-shares">${existing}</div>`,
+      async (form, version, requestId) => {
+        const summary = form.get("summary").trim();
+        if (!summary)
+          throw { message: "Write a short update for the customer." };
+        const current = await api(`/tasks/${task.id}`);
+        const preview = taskPreview(current, summary);
+        const saved = await api(`/tasks/${task.id}/shares`, {
+          method: "POST",
+          requestId,
+          body: {
+            summary,
+            image: preview.split(",")[1],
+            expected_version: current.version,
+          },
+        });
+        $("#dialog-fields").innerHTML =
+          `<div class="share-result"><p>Your customer link is ready.</p><img class="share-image" src="${preview}" alt="Shared task snapshot"><label for="shared-url">Customer link</label><input id="shared-url" readonly value="${esc(saved.url)}"><div class="share-buttons"><button type="button" class="button primary" id="copy-share">Copy link</button><a class="button" href="${esc(saved.url)}" target="_blank" rel="noopener">Open customer view</a>${navigator.share ? '<button type="button" class="button" id="native-share">Share…</button>' : ""}</div></div>`;
+        $("#save-dialog").hidden = true;
+        $("#cancel-dialog").textContent = "Done";
+        $("#copy-share").onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(saved.url);
+            $("#copy-share").textContent = "Copied";
+          } catch {
+            $("#shared-url").select();
+            toast("Select and copy the customer link.");
+          }
+        };
+        if ($("#native-share"))
+          $("#native-share").onclick = async () => {
+            try {
+              await navigator.share({ title: current.title, url: saved.url });
+            } catch (error) {
+              if (error.name !== "AbortError")
+                toast("Copy the link to share it.");
+            }
+          };
+      },
+      { button: "Create share link", keepOpen: true },
+    );
+    const summary = $('[name="summary"]', $("#editor"));
+    summary.maxLength = 4000;
+    const update = () => {
+      $("#share-preview").src = taskPreview(
+        task,
+        summary.value || "Your customer update will appear here.",
+      );
+    };
+    summary.addEventListener("input", update);
+    update();
+    document.querySelectorAll("[data-revoke-share]").forEach((button) => {
+      button.onclick = async () => {
+        button.disabled = true;
+        try {
+          await api(`/tasks/${task.id}/shares/${button.dataset.revokeShare}`, {
+            method: "DELETE",
+            body: {},
+          });
+          button.closest(".share-link-row").remove();
+          toast("Customer link revoked.");
+        } catch (error) {
+          toast(errorText(error));
+          button.disabled = false;
+        }
+      };
+    });
+  } catch (error) {
+    toast(errorText(error));
   }
 }
 async function route() {

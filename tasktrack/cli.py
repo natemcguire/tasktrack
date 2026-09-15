@@ -131,12 +131,24 @@ def parser():
 
 
 def execute(args):
+    remote_url = os.environ.get("TT_URL")
+    if remote_url and args.command in {"serve", "backup", "restore"}:
+        raise Error(
+            422,
+            "local_command",
+            "Unset TT_URL to use local serve, backup or restore commands.",
+        )
     if args.command == "restore":
         return Store.restore(args.source, args.destination)
-    store = Store(getattr(args, "data_dir", None))
-    if args.command == "backup":
-        return store.backup(args.destination)
-    service = Service(store)
+    if remote_url:
+        from .remote import RemoteService
+
+        service = RemoteService(remote_url, os.environ.get("TT_TOKEN"))
+    else:
+        store = Store(getattr(args, "data_dir", None))
+        if args.command == "backup":
+            return store.backup(args.destination)
+        service = Service(store)
     if args.command == "serve":
         from .http import serve
 

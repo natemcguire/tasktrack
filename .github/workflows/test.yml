@@ -40,3 +40,26 @@ jobs:
           path: |
             docs/screenshots
             docs/browser-verification.json
+  cloudflare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: astral-sh/setup-uv@v6
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:hosted
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloudflare-evidence
+          path: |
+            docs/screenshots/hosted-*.png
+            docs/screenshots/task-preview.png
+            docs/hosted-verification.json

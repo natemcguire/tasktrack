@@ -1441,7 +1441,7 @@ class Service:
                 }
             raise Error(404, "not_found", "No matching read route.")
 
-    def attachment(self, identifier):
+    def attachment_metadata(self, identifier):
         with self.store.connection() as c:
             row = c.execute(
                 "SELECT * FROM attachments WHERE id=?", (identifier,)
@@ -1449,6 +1449,10 @@ class Service:
             if row is None:
                 raise Error(404, "not_found", "Attachment does not exist.")
             value = dict(row)
+        return value
+
+    def attachment(self, identifier):
+        value = self.attachment_metadata(identifier)
         path = self.store.blobs / value["sha256"]
         if not path.is_file():
             raise Error(

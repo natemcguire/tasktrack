@@ -1,0 +1,204 @@
+[hidden] {
+  display: none !important;
+}
+.hosted-page {
+  background: #f7f9f8;
+  min-height: 100vh;
+}
+.hosted-nav {
+  max-width: 1120px;
+  margin: auto;
+  padding: 28px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.hosted-nav > span {
+  color: var(--muted);
+  font-size: 14px;
+}
+.auth-card {
+  max-width: 460px;
+  margin: 8vh auto;
+  padding: 40px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+.auth-card h1 {
+  font-size: 36px;
+}
+.auth-card form {
+  display: grid;
+  gap: 14px;
+  margin: 28px 0;
+}
+.auth-card input,
+.auth-card button {
+  width: 100%;
+}
+.auth-card label,
+.account-content label {
+  font-size: 14px;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 6px;
+}
+.account-content {
+  max-width: 760px;
+  padding: 24px 32px 80px;
+  margin: auto;
+}
+.account-content > h1 {
+  margin-top: 24px;
+}
+.account-section {
+  padding: 28px;
+  margin: 24px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+}
+.account-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.account-row input,
+.account-row select {
+  flex: 1;
+  min-width: 0;
+}
+.account-list {
+  padding: 0;
+  list-style: none;
+  margin: 16px 0;
+}
+.account-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.account-list small {
+  display: block;
+  color: var(--muted);
+}
+.account-result {
+  margin: 16px 0;
+  padding: 18px;
+  border-radius: 8px;
+  background: #edf5f1;
+}
+.account-result input {
+  display: block;
+  width: 100%;
+  margin-bottom: 12px;
+}
+.account-result pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.shared-task {
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 44px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+.shared-task h1 {
+  font-size: 40px;
+  overflow-wrap: anywhere;
+}
+.shared-status {
+  display: inline-block;
+  padding: 5px 13px;
+  background: #eef1f0;
+  border-radius: 99px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.shared-status.in_progress {
+  color: #865f13;
+  background: #fff6de;
+}
+.shared-status.review {
+  color: #33568b;
+  background: #edf3ff;
+}
+.shared-status.done {
+  color: #176b52;
+  background: #e7f5ed;
+}
+.customer-update {
+  margin: 32px 0;
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+}
+.preserve-lines {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.share-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin: 20px 0;
+}
+.share-link-row {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+  align-items: center;
+}
+.share-link-row a {
+  overflow-wrap: anywhere;
+  flex: 1;
+}
+.share-result input {
+  width: 100%;
+  margin: 12px 0;
+}
+.share-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 600px) {
+  .hosted-nav {
+    padding: 20px;
+  }
+  .hosted-nav > span {
+    display: none;
+  }
+  .auth-card {
+    margin: 5vh 16px;
+    padding: 28px 24px;
+  }
+  .account-content {
+    padding: 20px 16px 60px;
+  }
+  .account-section {
+    padding: 22px 18px;
+  }
+  .account-row {
+    flex-wrap: wrap;
+  }
+  .account-row input,
+  .account-row select {
+    flex-basis: 100%;
+  }
+  .shared-task {
+    margin: 20px 16px;
+    padding: 28px 22px;
+  }
+  .shared-task h1 {
+    font-size: 30px;
+  }
+}

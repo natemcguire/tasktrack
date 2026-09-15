@@ -1,0 +1,46 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tasktrack",
+  "account_id": "4219a576830c72b0e6e4ca358e61473a",
+  "main": "build/cloudflare/worker.py",
+  "build": {
+    "command": "python3 cloudflare/build.py",
+    "watch_dir": ["worker.py", "tasktrack"],
+  },
+  "compatibility_date": "2026-09-15",
+  "compatibility_flags": ["python_workers"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "tasks.eastbayprojects.com", "custom_domain": true }],
+  "assets": {
+    "directory": "tasktrack/static",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "WORKSPACES", "class_name": "Workspace" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Workspace"] }],
+  "d1_databases": [
+    {
+      "binding": "ACCOUNTS",
+      "database_name": "tasktrack-accounts",
+      "database_id": "1e745e3c-f8bd-4809-a65d-82c6807b24c4",
+      "migrations_dir": "cloudflare/migrations",
+    },
+  ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "tasktrack-files" }],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["hello@tasks.eastbayprojects.com"],
+    },
+  ],
+  "triggers": { "crons": ["23 * * * *"] },
+  "vars": { "PUBLIC_URL": "https://tasks.eastbayprojects.com" },
+  "limits": { "cpu_ms": 10000 },
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": false },
+  },
+}

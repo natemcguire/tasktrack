@@ -1,5 +1,8 @@
 # Data, backup and migration
 
+This page describes the local installation. Hosted workspaces use
+[Cloudflare storage](cloudflare.md#storage-and-authorization) independently.
+
 ## Where data lives
 
 `TT_DATA_DIR` or `--data-dir` selects the data directory. The default is

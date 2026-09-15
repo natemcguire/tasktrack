@@ -12,6 +12,9 @@ license = "MIT"
 authors = [{name = "Nate McGuire"}]
 dependencies = []
 
+[dependency-groups]
+cloudflare = ["workers-py==1.17.3", "workers-runtime-sdk==1.8.4", "uv>=0.12.3"]
+
 [project.scripts]
 tt = "tasktrack.cli:main"
 

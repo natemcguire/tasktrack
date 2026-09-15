@@ -1,6 +1,6 @@
 # Tasktrack
 
-A local kanban board for people and coding agents. Keep the requirements, owner
+A kanban board for people and coding agents. Keep the requirements, owner
 and next action with the task.
 
 <a href="docs/screenshots/board.png"><img src="docs/screenshots/board.png" alt="Tasktrack board" width="560"></a>
@@ -10,12 +10,17 @@ and next action with the task.
 - Organize projects, epics and PRDs. Add tasks, comments and files.
 - Move cards from backlog to done. Assign owners and claim work atomically.
 - Save progress and hand off to another session without losing the thread.
+- Share a customer update with a picture and a link to the task.
 
-Browser, CLI and HTTP API. Python and SQLite. [MIT licensed](LICENSE).
+Browser, CLI and HTTP API. Python and SQLite. Hosted on Cloudflare or run locally.
+[MIT licensed](LICENSE).
 
 ## Get started
 
-Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/getting-started/installation/).
+[Open Tasktrack](https://tasks.eastbayprojects.com). Enter your email, follow the
+sign-in link, and start a workspace.
+
+Or run it locally with Python 3.11+ and [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```sh
 uv tool install git+https://github.com/natemcguire/tasktrack
@@ -47,6 +52,14 @@ tt brief --json
 Use the task reference and current version returned by your board. A claim belongs
 to one session; `tt brief` shows your work when you come back.
 
+For your hosted workspace, create a token under **Account → Agent access**:
+
+```sh
+export TT_URL=https://tasks.eastbayprojects.com
+export TT_TOKEN=your-token
+tt brief --json
+```
+
 [Browser guide](docs/browser.md) · [API & CLI](docs/api.md) ·
 [Backups](docs/persistence.md) · [Inbox integration](docs/integration.md) ·
-[Development & tests](docs/delivery.md)
+[Development & tests](docs/delivery.md) · [Cloudflare](docs/cloudflare.md)

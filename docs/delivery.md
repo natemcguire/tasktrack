@@ -1,5 +1,9 @@
 # Tasktrack v1 delivery
 
+The hosted edition adds magic-link accounts, workspaces, customer sharing and
+Cloudflare deployment. See [Cloudflare setup and verification](cloudflare.md).
+The record below describes the original local release.
+
 ## Source and preservation
 
 Built in the separate `tasktracker` workspace for the repository

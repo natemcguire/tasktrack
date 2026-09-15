@@ -4,6 +4,12 @@ The UI and API share `http://127.0.0.1:7777`. Start with `tt serve`; choose anot
 port using `--port`. V1 binds to loopback and rejects foreign browser origins/hosts.
 All UI assets are local. No wildcard CORS or external runtime service is required.
 
+The [hosted edition](cloudflare.md) uses `https://tasks.eastbayprojects.com` with
+the same `/api/v1` routes. Send `Authorization: Bearer <agent-token>`; the token
+determines the workspace and actor. Hosted requests ignore `X-Actor`. The hosted
+CLI uses `TT_URL` and `TT_TOKEN`. Browser sessions require `X-CSRF-Token` for writes;
+the browser also sends `X-Workspace-ID` to detect a stale workspace selection.
+
 [Executed request/response examples](api-examples.md) ·
 [Complete captured transcript](api-transcript.json)
 
@@ -19,7 +25,7 @@ Every mutation requires:
 | `Idempotency-Key` | `--request-id` | Key for an operation’s retries; CLI generates one if omitted |
 | Body `expected_version` | `--version` | Required for updates/actions on existing mutable entities |
 
-These identities provide attribution, not authentication. Claiming unassigned work
+Locally, these identities provide attribution, not authentication. Claiming unassigned work
 assigns it to the claimant; other assignments require explicit reassignment first.
 An agent’s claim does not acquire an inbox file reservation.
 

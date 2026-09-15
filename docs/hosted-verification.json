@@ -1,0 +1,17 @@
+{
+  "checked_at": "2026-09-15T20:00:37.416Z",
+  "runtime": "Cloudflare workerd / D1 / Durable Object SQLite / R2",
+  "checks": [
+    "Email-only signup; scanner-safe links are consumed once; each new account gets its own workspace",
+    "Browser project creation, CSRF protection, and task/project isolation with overlapping IDs",
+    "Concurrent claims have one winner; retries replay one receipt; rejected transitions roll back; actor spoofing fails",
+    "A failure after an epic write rolls back parent, child, history and versions together",
+    "R2 upload/download preserves bytes and enforces workspace authorization",
+    "Customer sharing renders metadata and a 1200×630 PNG, hides internal data, tracks current status, and revokes page and image",
+    "Browser-issued agent tokens support the remote CLI, recovery, attachments, and immediate revocation",
+    "Single-use invitations, member removal, and stale-tab checks preserve workspace isolation",
+    "Expiry, rate limits, logout, repeat sign-in and scheduled credential cleanup work"
+  ],
+  "browser_errors": [],
+  "email_delivery": "Local outbox; no external email sent"
+}
