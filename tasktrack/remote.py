@@ -7,6 +7,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from . import __version__
 from .db import Error
 
 
@@ -64,6 +65,8 @@ class RemoteService:
             method=method,
             headers={
                 "Authorization": "Bearer " + self.token,
+                "User-Agent": "Tasktrack/" + __version__,
+                "Accept": "application/json",
                 "X-Via": "cli",
                 **(headers or {}),
             },
