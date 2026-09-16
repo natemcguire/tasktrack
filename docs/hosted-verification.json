@@ -1,8 +1,9 @@
 {
-  "checked_at": "2026-09-16T18:33:10.186Z",
+  "checked_at": "2026-09-16T21:57:10.014Z",
   "runtime": "Cloudflare workerd / D1 / Durable Object SQLite / R2",
   "checks": [
     "Email-only signup; scanner-safe links are consumed once; each new account gets its own workspace",
+    "Passwordless passkey registration/sign-in, user verification, account ownership, CSRF/origin protection, replay rejection, removal/session revocation and email recovery",
     "Browser project creation, CSRF protection, and task/project isolation with overlapping IDs",
     "Project index, recent-work triage, mobile layouts, authenticated preview handoff and cross-tenant denial",
     "Concurrent claims have one winner; retries replay one receipt; rejected transitions roll back; actor spoofing fails",

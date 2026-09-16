@@ -31,7 +31,7 @@ def safe_next(value):
     return (
         value
         if re.fullmatch(
-            r"/(?:preview/return/[a-f0-9-]{36}/[A-Za-z0-9_-]{43}|triage|invite/[A-Za-z0-9_-]{43}|tasks/[0-9]+|projects/[A-Za-z0-9]+(?:/settings)?)?",
+            r"/(?:preview/return/[a-f0-9-]{36}/[A-Za-z0-9_-]{43}|account|triage|invite/[A-Za-z0-9_-]{43}|tasks/[0-9]+|projects/[A-Za-z0-9]+(?:/settings)?)?",
             value or "",
         )
         else "/"
@@ -298,6 +298,7 @@ class Accounts:
     async def overview(self, identity):
         wid = identity["workspace_id"]
         return {
+            "passkeys": await self.many("SELECT id,name,created_at,last_used_at FROM passkeys WHERE user_id=? ORDER BY created_at",identity["user_id"]),
             "workspaces": await self.many(
                 "SELECT w.id,w.name,m.role FROM memberships m JOIN workspaces w ON w.id=m.workspace_id WHERE m.user_id=? ORDER BY w.created_at,w.id",
                 identity["user_id"],

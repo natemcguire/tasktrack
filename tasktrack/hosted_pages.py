@@ -27,6 +27,7 @@ def page(title, content, metadata="", script=False):
         "hosted.css",
         "hosted.js",
         "auth.js",
+        "passkeys.js",
         "preview.js",
         "favicon.svg",
     ):
@@ -50,10 +51,15 @@ def auth_page(mode="login", next_path="/", message="", secret="", challenge=""):
         title = "Sign in."
         intro = "Enter your email to sign in."
         form = f'''<form method="post" action="/auth/link"><label for="email">Email address</label><input id="email" name="email" type="email" required autocomplete="email" placeholder="you@example.com" maxlength="254" autofocus><input type="hidden" name="next" value="{esc(next_path)}"><button class="button primary" type="submit">Email me a code</button></form><p class="small muted">Your first sign-in creates a private workspace.</p>'''
+    if not secret and not challenge:
+        form = (
+            '<button type="button" class="button" id="passkey-login" hidden>Sign in with a passkey</button><p id="passkey-message" role="status"></p>'
+            + form
+        )
     return page(
         "Sign in",
         f'<main class="auth-card"><h1>{title}</h1><p class="muted">{esc(intro)}</p>{form}</main>',
-        '<script src="/auth.js" defer></script>',
+        '<script src="/auth.js" defer></script><script src="/passkeys.js" defer></script>',
     )
 
 
@@ -93,16 +99,24 @@ def account_page(identity, overview):
             else f'<button class="button quiet" data-revoke-invite="{esc(invitation["token_hash"])}">Revoke</button>'
         )
         invites += f"<li><span>Invitation <small>{label}</small></span>{revoke}</li>"
+    passkey_rows = "".join(
+        f'<li><span>{esc(k["name"])}<small>Added {datetime.fromtimestamp(k["created_at"], timezone.utc).date()}</small></span><button class="button quiet" data-remove-passkey="{esc(k["id"])}">Remove passkey</button></li>'
+        for k in overview["passkeys"]
+    )
     content = f'''<main class="account-content"><a href="/">← Back to your board</a><h1>Your workspace</h1>
 <p class="muted">Signed in as {esc(identity["email"])}</p>
 <section class="account-section"><h2>Workspace</h2><form method="post" action="/account/switch"><input type="hidden" name="csrf" value="{csrf}"><label for="workspace">Open workspace</label><div class="account-row"><select id="workspace" name="workspace_id">{options}</select><button class="button">Open</button></div></form>
 {f'<form id="rename-workspace"><label for="workspace-name">Workspace name</label><div class="account-row"><input id="workspace-name" name="name" value="{esc(identity["workspace_name"])}" maxlength="80" required><button class="button">Save name</button></div></form>' if owner else ""}</section>
+<section class="account-section"><h2>Passkeys</h2><p class="muted">Sign in with Touch ID, Face ID or your device’s screen lock. Your email code remains available for recovery.</p><ul class="account-list">{passkey_rows or "<li>No passkeys yet.</li>"}</ul><form id="add-passkey" hidden><label for="passkey-name">Passkey name</label><div class="account-row"><input id="passkey-name" maxlength="80" value="My passkey" required><button class="button">Add passkey</button></div></form><p id="passkey-message" role="status"></p></section>
 <section class="account-section"><h2>People</h2><ul class="account-list">{members}</ul>{'<p class="small muted">An invitation lets one person join this workspace. It expires in 48 hours.</p><button class="button" id="create-invite">Create invitation link</button><div id="invite-result"></div><ul class="account-list">' + invites + "</ul>" if owner else ""}</section>
 <section class="account-section"><h2>Agent access</h2><p class="muted">Give an agent access to this workspace from the CLI or API. Tokens expire after 90 days.</p>
 {'<form id="create-token"><label for="token-name">Agent name</label><div class="account-row"><input id="token-name" name="name" placeholder="codex" maxlength="60" required><button class="button">Create token</button></div></form><div id="token-result"></div>' if owner else '<p class="small">Ask the workspace owner to create an agent token.</p>'}<ul class="account-list">{tokens or "<li>No tokens yet.</li>"}</ul></section>
 <form method="post" action="/auth/logout"><input type="hidden" name="csrf" value="{csrf}"><button class="button">Sign out</button></form><p id="account-message" role="status"></p></main>'''
     return page(
-        "Account", content, f'<meta name="tt-csrf" content="{csrf}">', script=True
+        "Account",
+        content,
+        f'<meta name="tt-csrf" content="{csrf}"><script src="/passkeys.js" defer></script>',
+        script=True,
     )
 
 

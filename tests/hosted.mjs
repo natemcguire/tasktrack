@@ -28,7 +28,7 @@ const port = await new Promise((resolve) => {
     listener.close(() => resolve(port));
   });
 });
-const url = `http://127.0.0.1:${port}`;
+const url = `http://localhost:${port}`;
 // Wrangler rewrites redirect hosts locally; production host isolation is checked after deploy.
 const previewUrl = url;
 const env = {
@@ -77,7 +77,7 @@ async function start() {
       "dev",
       "--local",
       "--local-upstream",
-      `127.0.0.1:${port}`,
+      `localhost:${port}`,
       "--port",
       String(port),
       "--persist-to",
@@ -231,7 +231,12 @@ function cli(token, ...args) {
 
 try {
   await start();
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({
+    headless: true,
+    ...(process.env.TEST_BROWSER_CHANNEL
+      ? { channel: process.env.TEST_BROWSER_CHANNEL }
+      : {}),
+  });
   const alice = await context(),
     bob = await context(),
     customer = await context();
@@ -246,6 +251,171 @@ try {
   assert.equal(alice.identity.actor, "alice@example.invalid");
   pass(
     "Email-only signup; scanner-safe links are consumed once; each new account gets its own workspace",
+  );
+
+  // Real WebAuthn ceremonies use a virtual platform authenticator, never mocked signatures.
+  const passkeyUser = await context();
+  await login(passkeyUser, "passkey@example.invalid");
+  const cdp = await passkeyUser.ctx.newCDPSession(passkeyUser.page);
+  await cdp.send("WebAuthn.enable");
+  const { authenticatorId } = await cdp.send(
+    "WebAuthn.addVirtualAuthenticator",
+    {
+      options: {
+        protocol: "ctap2",
+        transport: "internal",
+        hasResidentKey: true,
+        hasUserVerification: true,
+        isUserVerified: true,
+        automaticPresenceSimulation: true,
+      },
+    },
+  );
+  await passkeyUser.page.goto(url + "/account");
+  await passkeyUser.page.getByLabel("Passkey name").fill("Test Touch ID");
+  await passkeyUser.page
+    .getByRole("button", { name: "Add passkey", exact: true })
+    .click();
+  await expect(
+    passkeyUser.page.getByRole("button", {
+      name: "Remove passkey",
+      exact: true,
+    }),
+  ).toBeVisible({ timeout: 20000 });
+  const registered = db
+    .prepare("SELECT * FROM passkeys WHERE name='Test Touch ID'")
+    .get();
+  assert.ok(registered.public_key.length > 10);
+  // Another signed-in user cannot remove this credential.
+  await request(bob, "/auth/passkeys/remove", {
+    method: "POST",
+    body: { id: registered.id },
+    headers: { Origin: url, Accept: "application/json" },
+    status: 404,
+  });
+  await passkeyUser.page
+    .getByRole("button", { name: "Sign out", exact: true })
+    .click();
+  await passkeyUser.page.goto(url + "/login?next=/triage");
+  let assertion;
+  const captureAssertion = (r) => {
+    if (r.url().endsWith("/auth/passkeys/login/verify"))
+      assertion = r.postDataJSON();
+  };
+  passkeyUser.page.on("request", captureAssertion);
+  await passkeyUser.page
+    .getByRole("button", { name: "Sign in with a passkey", exact: true })
+    .click();
+  await expect(passkeyUser.page).toHaveURL(url + "/triage", { timeout: 20000 });
+  passkeyUser.page.off("request", captureAssertion);
+  await refresh(passkeyUser);
+  assert.equal(passkeyUser.identity.email, "passkey@example.invalid");
+  await request(passkeyUser, "/auth/passkeys/login/verify", {
+    method: "POST",
+    body: assertion,
+    headers: { Origin: url, Accept: "application/json" },
+    status: 400,
+  });
+  await request(passkeyUser, "/auth/passkeys/login/options", {
+    method: "POST",
+    body: {},
+    headers: { Origin: "https://attacker.invalid", Accept: "application/json" },
+    status: 403,
+  });
+  await request(passkeyUser, "/auth/passkeys/register/options", {
+    method: "POST",
+    body: {},
+    csrf: false,
+    headers: { Origin: url, Accept: "application/json" },
+    status: 403,
+  });
+  await request(customer, "/auth/passkeys/login/verify", {
+    method: "POST",
+    body: assertion,
+    headers: { Origin: url, Accept: "application/json" },
+    status: 400,
+  });
+  const freshOptions = await request(
+    passkeyUser,
+    "/auth/passkeys/login/options",
+    {
+      method: "POST",
+      body: {},
+      headers: { Origin: url, Accept: "application/json" },
+    },
+  );
+  const tampered = structuredClone(assertion);
+  const clientData = JSON.parse(
+    Buffer.from(
+      tampered.credential.response.clientDataJSON,
+      "base64url",
+    ).toString(),
+  );
+  clientData.challenge = freshOptions.challenge;
+  tampered.credential.response.clientDataJSON = Buffer.from(
+    JSON.stringify(clientData),
+  ).toString("base64url");
+  const authData = Buffer.from(
+    tampered.credential.response.authenticatorData,
+    "base64url",
+  );
+  authData.writeUInt32BE(99, 33);
+  tampered.credential.response.authenticatorData =
+    authData.toString("base64url");
+  await request(passkeyUser, "/auth/passkeys/login/verify", {
+    method: "POST",
+    body: tampered,
+    headers: { Origin: url, Accept: "application/json" },
+    status: 400,
+  });
+  await request(passkeyUser, "/auth/passkeys/login/options", {
+    method: "POST",
+    body: {},
+    headers: { Origin: url, Accept: "application/json" },
+  });
+  db.prepare("UPDATE passkey_challenges SET expires_at=0").run();
+  await request(passkeyUser, "/auth/passkeys/login/verify", {
+    method: "POST",
+    body: assertion,
+    headers: { Origin: url, Accept: "application/json" },
+    status: 400,
+  });
+  const pkSession = db
+    .prepare(
+      "SELECT expires_at FROM sessions WHERE user_id=? ORDER BY expires_at DESC LIMIT 1",
+    )
+    .get(registered.user_id);
+  db.prepare("UPDATE sessions SET expires_at=? WHERE user_id=?").run(
+    Math.floor(Date.now() / 1000) + 30 * 86400 - 601,
+    registered.user_id,
+  );
+  await request(passkeyUser, "/auth/passkeys/register/options", {
+    method: "POST",
+    body: {},
+    headers: { Origin: url, Accept: "application/json" },
+    status: 403,
+  });
+  db.prepare("UPDATE sessions SET expires_at=? WHERE user_id=?").run(
+    pkSession.expires_at,
+    registered.user_id,
+  );
+  await passkeyUser.page.goto(url + "/account");
+  passkeyUser.page.once("dialog", (d) => d.accept());
+  await passkeyUser.page
+    .getByRole("button", { name: "Remove passkey", exact: true })
+    .click();
+  await expect(passkeyUser.page).toHaveURL(/login/);
+  assert.equal(
+    db
+      .prepare("SELECT count(*) AS n FROM passkeys WHERE id=?")
+      .get(registered.id).n,
+    0,
+  );
+  await cdp.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId });
+  await login(passkeyUser, "passkey@example.invalid");
+  assert.equal(passkeyUser.identity.email, "passkey@example.invalid");
+  pass(
+    "Passwordless passkey registration/sign-in, user verification, account ownership, CSRF/origin protection, replay rejection, removal/session revocation and email recovery",
   );
 
   await api(customer, "/projects", { status: 401 });
@@ -628,6 +798,16 @@ try {
   const token = (await tokenText.textContent()).match(
     /tt_[A-Za-z0-9_-]{43}/,
   )[0];
+  await request(alice, "/auth/passkeys/register/options", {
+    method: "POST",
+    body: {},
+    headers: {
+      Origin: url,
+      Accept: "application/json",
+      Authorization: "Bearer " + token,
+    },
+    status: 403,
+  });
   assert.equal(cli(token, "project", "get", "HBR").id, project.id);
   const taskFile = path.join(temp, "task.json");
   await writeFile(

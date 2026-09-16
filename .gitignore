@@ -17,3 +17,5 @@ python_modules/
 pylock.toml
 
 wrangler.private.json
+
+tasktrack/static/passkeys.js

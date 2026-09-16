@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 from workers import DurableObject, Request, Response, WorkerEntrypoint
 
 from tasktrack import previews
+from tasktrack import passkeys
 from tasktrack.accounts import Accounts, digest, safe_next, timestamp, token
 from tasktrack.asset_version import ASSET_VERSION
 from tasktrack.cloud_store import CloudStore
@@ -231,6 +232,7 @@ class Default(WorkerEntrypoint):
                 "/hosted.css",
                 "/favicon.svg",
                 "/preview.js",
+                "/passkeys.js",
             }:
                 response = await previews.route(self, request, accounts, path, query)
             else:
@@ -292,6 +294,7 @@ class Default(WorkerEntrypoint):
                 "/app.js",
                 "/auth.js",
                 "/preview.js",
+                "/passkeys.js",
                 "/style.css",
                 "/hosted.js",
                 "/hosted.css",
@@ -326,6 +329,10 @@ class Default(WorkerEntrypoint):
             )
         if path in {"/login", "/signup"} and method == "GET":
             return html(auth_page(path[1:], safe_next(query.get("next"))))
+        if path.startswith("/auth/passkeys/"):
+            return await passkeys.route(
+                accounts, request, path, await body_data(request)
+            )
         if path == "/auth/link" and method == "POST":
             data = await body_data(request, form=True)
             challenge = await accounts.login_link(
@@ -436,9 +443,13 @@ class Default(WorkerEntrypoint):
         if path.startswith("/api/account"):
             return await self.account_api(request, accounts, identity, path, method)
         if path.startswith("/api/v1/"):
-            preview_route = re.fullmatch(r"/api/v1/tasks/([A-Za-z0-9-]+)/client-preview", path)
+            preview_route = re.fullmatch(
+                r"/api/v1/tasks/([A-Za-z0-9-]+)/client-preview", path
+            )
             if preview_route:
-                return await self.client_preview_api(request, accounts, identity, preview_route[1], method)
+                return await self.client_preview_api(
+                    request, accounts, identity, preview_route[1], method
+                )
             share_route = re.fullmatch(
                 r"/api/v1/tasks/([A-Za-z0-9-]+)/shares(?:/([a-f0-9-]+))?", path
             )
@@ -718,18 +729,34 @@ class Default(WorkerEntrypoint):
         _, task = await self.task_call(identity, "/api/v1/tasks/" + identifier)
         wid = identity["workspace_id"]
         if method == "GET":
-            row = await accounts.one("SELECT version,image FROM client_previews WHERE workspace_id=? AND task_id=?", wid, task["id"])
-            return Response.json(row if row and row["version"] == task["version"] else {"version": None})
+            row = await accounts.one(
+                "SELECT version,image FROM client_previews WHERE workspace_id=? AND task_id=?",
+                wid,
+                task["id"],
+            )
+            return Response.json(
+                row if row and row["version"] == task["version"] else {"version": None}
+            )
         accounts.csrf(request, identity)
         if method != "PUT":
             raise Error(405, "method", "Use GET or PUT.")
         data = await body_data(request)
         if data.get("expected_version") != task["version"]:
-            raise Error(409, "version_conflict", "The task changed. Reopen it to generate its latest preview.")
+            raise Error(
+                409,
+                "version_conflict",
+                "The task changed. Reopen it to generate its latest preview.",
+            )
         image = data.get("image")
         self.preview_png(image)
         await accounts.limit("preview:" + wid, 300, 60)
-        await accounts.run("INSERT INTO client_previews(workspace_id,task_id,version,image) VALUES(?,?,?,?) ON CONFLICT(workspace_id,task_id) DO UPDATE SET version=excluded.version,image=excluded.image WHERE excluded.version>=client_previews.version", wid, task["id"], task["version"], image)
+        await accounts.run(
+            "INSERT INTO client_previews(workspace_id,task_id,version,image) VALUES(?,?,?,?) ON CONFLICT(workspace_id,task_id) DO UPDATE SET version=excluded.version,image=excluded.image WHERE excluded.version>=client_previews.version",
+            wid,
+            task["id"],
+            task["version"],
+            image,
+        )
         return Response.json({"version": task["version"], "image": image})
 
     @staticmethod
@@ -738,10 +765,18 @@ class Default(WorkerEntrypoint):
             raise Error(422, "preview", "Create a PNG preview smaller than 1 MiB.")
         try:
             png = base64.b64decode(image, validate=True)
-            if len(png) < 33 or len(png) > 1024 * 1024 or png[:8] != b"\x89PNG\r\n\x1a\n" or png[12:16] != b"IHDR" or struct.unpack(">II", png[16:24]) != (1200, 630):
+            if (
+                len(png) < 33
+                or len(png) > 1024 * 1024
+                or png[:8] != b"\x89PNG\r\n\x1a\n"
+                or png[12:16] != b"IHDR"
+                or struct.unpack(">II", png[16:24]) != (1200, 630)
+            ):
                 raise ValueError("Invalid preview")
         except (ValueError, TypeError):
-            raise Error(422, "preview", "The preview must be a 1200 × 630 PNG.") from None
+            raise Error(
+                422, "preview", "The preview must be a 1200 × 630 PNG."
+            ) from None
         return png
 
     async def share_api(self, request, accounts, identity, match, method):
@@ -784,9 +819,17 @@ class Default(WorkerEntrypoint):
                 422, "summary", "Write a customer update of 1–4,000 characters."
             )
         if data.get("use_cached_preview"):
-            cached = await accounts.one("SELECT version,image FROM client_previews WHERE workspace_id=? AND task_id=?", wid, task["id"])
+            cached = await accounts.one(
+                "SELECT version,image FROM client_previews WHERE workspace_id=? AND task_id=?",
+                wid,
+                task["id"],
+            )
             if not cached or cached["version"] != task["version"]:
-                raise Error(409, "preview_pending", "Generating client preview. Reopen the task and try again.")
+                raise Error(
+                    409,
+                    "preview_pending",
+                    "Generating client preview. Reopen the task and try again.",
+                )
             image = cached["image"]
         png = self.preview_png(image)
         request_key = request.headers.get("Idempotency-Key", "")
@@ -874,6 +917,9 @@ class Default(WorkerEntrypoint):
                 accounts.statement("DELETE FROM sessions WHERE expires_at<?", now),
                 accounts.statement("DELETE FROM login_links WHERE expires_at<?", now),
                 accounts.statement("DELETE FROM login_codes WHERE expires_at<?", now),
+                accounts.statement(
+                    "DELETE FROM passkey_challenges WHERE expires_at<?", now
+                ),
                 accounts.statement(
                     "DELETE FROM preview_grants WHERE expires_at<?", now
                 ),
