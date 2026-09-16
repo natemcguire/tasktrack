@@ -21,21 +21,24 @@ def page(title, content, metadata="", script=False):
 </head><body class="hosted-page"><header class="hosted-nav"><a class="brand" href="/"><span class="brand-mark">t.</span>tasktrack</a><span>A place for the work.</span></header>{content}</body></html>"""
 
 
-def auth_page(mode="login", next_path="/", message="", secret=""):
+def auth_page(mode="login", next_path="/", message="", secret="", challenge=""):
     if secret:
-        title = "You’re one click away."
-        intro = "Continue to your Tasktrack workspace."
-        form = f'''<form method="post" action="/auth/verify"><input type="hidden" name="token" value="{esc(secret)}"><button class="button primary" type="submit">Continue to Tasktrack</button></form>'''
-    elif message:
-        title, intro = "Check your inbox.", message
-        form = '<a class="button" href="/login">Send another link</a>'
+        title, intro = "Signing you in…", "Opening your workspace."
+        form = f'''<form id="magic-form" method="post" action="/auth/verify"><input type="hidden" name="token" value="{esc(secret)}"><button class="button primary" type="submit">Continue</button></form>'''
+    elif challenge:
+        title, intro = (
+            "Check your inbox.",
+            "Enter the six-digit code. If your device offers AutoFill, select it to sign in.",
+        )
+        form = f'''<form id="code-form" method="post" action="/auth/code"><input type="hidden" name="challenge" value="{esc(challenge)}"><label for="code">Sign-in code</label><input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{{6}}" maxlength="6" required autofocus><button class="button primary">Sign in</button><p id="code-error" role="alert"></p></form><p class="small muted">Expires in 15 minutes. You can also use the link in the email.</p><a href="/login?next={esc(next_path)}">Send a new code</a>'''
     else:
-        title = "Make room for the work." if mode == "signup" else "Welcome back."
-        intro = "Enter your email. We’ll send you a link to sign in."
-        form = f'''<form method="post" action="/auth/link"><label for="email">Email address</label><input id="email" name="email" type="email" required autocomplete="email" placeholder="you@example.com" maxlength="254" autofocus><input type="hidden" name="next" value="{esc(next_path)}"><button class="button primary" type="submit">Email me a sign-in link</button></form><p class="small muted">Your first sign-in creates a private workspace.</p>'''
+        title = "Welcome to Tasktrack." if mode == "signup" else "Welcome back."
+        intro = "Enter your email to sign in."
+        form = f'''<form method="post" action="/auth/link"><label for="email">Email address</label><input id="email" name="email" type="email" required autocomplete="email" placeholder="you@example.com" maxlength="254" autofocus><input type="hidden" name="next" value="{esc(next_path)}"><button class="button primary" type="submit">Email me a code</button></form><p class="small muted">Your first sign-in creates a private workspace.</p>'''
     return page(
         "Sign in",
-        f'<main class="auth-card"><p class="eyebrow">YOUR WORK, TOGETHER</p><h1>{title}</h1><p class="muted">{esc(intro)}</p>{form}</main>',
+        f'<main class="auth-card"><h1>{title}</h1><p class="muted">{esc(intro)}</p>{form}</main>',
+        '<script src="/auth.js" defer></script>',
     )
 
 

@@ -29,6 +29,8 @@ const port = await new Promise((resolve) => {
   });
 });
 const url = `http://127.0.0.1:${port}`;
+// Wrangler rewrites redirect hosts locally; production host isolation is checked after deploy.
+const previewUrl = url;
 const env = {
   ...process.env,
   PATH: `${path.join(root, "node_modules/.bin")}${path.delimiter}${process.env.PATH}`,
@@ -84,6 +86,8 @@ async function start() {
       `PUBLIC_URL:${url}`,
       "--var",
       "LOCAL_EMAIL:1",
+      "--var",
+      `PREVIEW_URL:${previewUrl}`,
     ],
     { cwd: root, env, detached: true, stdio: ["ignore", "pipe", "pipe"] },
   );
@@ -137,9 +141,7 @@ async function login(who, email) {
   await who.page.goto(url + "/signup");
   assert.equal(await who.page.locator('input[type="password"]').count(), 0);
   await who.page.getByLabel("Email address").fill(email);
-  await who.page
-    .getByRole("button", { name: "Email me a sign-in link" })
-    .click();
+  await who.page.getByRole("button", { name: "Email me a code" }).click();
   await expect(
     who.page.getByRole("heading", { name: "Check your inbox." }),
   ).toBeVisible();
@@ -152,8 +154,13 @@ async function login(who, email) {
   // Mail scanners can follow the URL repeatedly without consuming it.
   assert.equal((await who.ctx.request.get(link)).status(), 200);
   assert.equal((await who.ctx.request.get(link)).status(), 200);
-  await who.page.goto(link);
-  await who.page.getByRole("button", { name: "Continue to Tasktrack" }).click();
+  if (email.startsWith("bob")) {
+    await who.page.goto(link); // fallback signs in without another click
+  } else {
+    await who.page
+      .getByLabel("Sign-in code")
+      .fill(body.match(/code: (\d{6})/)[1]);
+  }
   await expect(
     who.page.getByRole("link", { name: "Account", exact: true }),
   ).toBeVisible();
@@ -254,9 +261,7 @@ try {
     headers: { Origin: "https://other.example" },
     status: 403,
   });
-  await alice.page
-    .getByRole("button", { name: "Create your first project" })
-    .click();
+  await alice.page.getByRole("button", { name: "New project" }).click();
   let dialog = alice.page.getByRole("dialog");
   await dialog.getByLabel("Project key").fill("hbr");
   await dialog.getByLabel("Project name").fill("Harbor checkout");
@@ -304,6 +309,71 @@ try {
   assert.equal(history.items[0].actor, "alice@example.invalid");
   pass(
     "Browser project creation, CSRF protection, and task/project isolation with overlapping IDs",
+  );
+
+  await alice.page.goto(url);
+  await expect(
+    alice.page.getByRole("heading", { name: "Projects", exact: true }),
+  ).toBeVisible();
+  await alice.page.locator(".triage-entry").click();
+  await expect(
+    alice.page.getByRole("heading", { name: "TRIAGE", exact: true }),
+  ).toBeVisible();
+  await expect(alice.page.locator(".triage-item")).toHaveCount(2);
+  const published = await request(alice, "/api/account/previews", {
+    method: "POST",
+    status: 201,
+    body: {
+      project_id: project.id,
+      title: "Private review",
+      html: '<!doctype html><h1>Secret design</h1><script>document.body.dataset.interactive="yes"</script>',
+    },
+  });
+  assert.ok(published.url.startsWith(previewUrl));
+  await alice.page.goto(published.url);
+  await expect(
+    alice.page
+      .frameLocator("iframe")
+      .getByRole("heading", { name: "Secret design" }),
+  ).toBeVisible();
+  const contentResponse = await alice.ctx.request.get(
+    published.url + "/content",
+  );
+  assert.match(
+    contentResponse.headers()["content-security-policy"],
+    /sandbox allow-scripts/,
+  );
+  await bob.page.goto(published.url);
+  assert.equal(
+    (await bob.page.locator("body").innerText()).includes("Secret design"),
+    false,
+  );
+  await expect(
+    bob.page.getByText("This preview is unavailable for your account."),
+  ).toBeVisible();
+  await alice.page.goto(url + "/projects/HBR");
+  await alice.page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    alice.page.getByRole("button", { name: "Projects", exact: true }),
+  ).toBeVisible();
+  assert.ok(
+    await alice.page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+  await alice.page.goto(url + "/tasks/" + task.id);
+  assert.ok(
+    await alice.page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  );
+  await alice.page.screenshot({
+    path: path.join(artifacts, "hosted-task-mobile.png"),
+    fullPage: true,
+  });
+  await alice.page.setViewportSize({ width: 1440, height: 1000 });
+  pass(
+    "Project index, recent-work triage, mobile layouts, authenticated preview handoff and cross-tenant denial",
   );
 
   const key = crypto.randomUUID();
@@ -649,6 +719,36 @@ try {
     body: { name: "bypass" },
     status: 403,
   });
+  await bob.page.goto(published.url);
+  await expect(
+    bob.page.getByText("This preview is unavailable for your account."),
+  ).toBeVisible();
+  await request(alice, "/api/account/preview-projects/" + project.id, {
+    method: "POST",
+    body: { emails: ["bob@example.invalid"], team_access: false },
+  });
+  await bob.page.goto(published.url);
+  await expect(
+    bob.page
+      .frameLocator("iframe")
+      .getByRole("heading", { name: "Secret design" }),
+  ).toBeVisible();
+  await request(alice, "/api/account/preview-projects/" + project.id, {
+    method: "POST",
+    body: { emails: [], team_access: false },
+  });
+  assert.equal(
+    (await bob.ctx.request.get(published.url + "/content")).status(),
+    404,
+  );
+  await request(alice, "/api/account/preview-projects/" + project.id, {
+    method: "POST",
+    body: { emails: [], team_access: true },
+  });
+  assert.equal(
+    (await bob.ctx.request.get(published.url + "/content")).status(),
+    200,
+  );
   await bob.page.goto(url + "/account");
   const previousIdentity = bob.identity;
   await bob.page
@@ -671,6 +771,10 @@ try {
   await alice.page.reload();
   await alice.page.locator("[data-remove-member]").click();
   await expect(alice.page.locator("[data-remove-member]")).toHaveCount(0);
+  assert.equal(
+    (await bob.ctx.request.get(published.url + "/content")).status(),
+    404,
+  );
   const switchBack = await bob.ctx.request.post(url + "/account/switch", {
     form: {
       workspace_id: alice.identity.workspace_id,
@@ -681,6 +785,43 @@ try {
   assert.equal((await api(bob, "/projects")).items[0].key, "BOB");
   pass(
     "Single-use invitations, member removal, and stale-tab checks preserve workspace isolation",
+  );
+
+  const gallery = await request(alice, "/api/account/previews", {
+    method: "POST",
+    status: 201,
+    body: {
+      project_id: project.id,
+      title: "Design gallery",
+      html: await readFile(
+        path.join(root, "docs/product/wireframes.html"),
+        "utf8",
+      ),
+    },
+  });
+  await alice.page.setViewportSize({ width: 390, height: 844 });
+  await alice.page.goto(gallery.url + "#invoice");
+  const frame = alice.page.frameLocator("iframe");
+  await expect(frame.locator("#invoice")).toBeVisible();
+  const screens = await frame
+    .locator("#screen-select option")
+    .evaluateAll((nodes) => nodes.map((n) => n.value));
+  for (const screen of screens) {
+    await frame.locator("#screen-select").selectOption(screen);
+    await expect(frame.locator("#" + screen)).toBeVisible();
+    const overflow = await frame
+      .locator("body")
+      .evaluate((node) => node.scrollWidth > window.innerWidth);
+    assert.equal(overflow, false, "Mobile preview overflow: " + screen);
+  }
+  await frame.locator("#screen-select").selectOption("invoice");
+  await alice.page.screenshot({
+    path: path.join(artifacts, "hosted-preview-mobile.png"),
+    fullPage: true,
+  });
+  await alice.page.setViewportSize({ width: 1440, height: 1000 });
+  pass(
+    "Project preview grants, team mode, immediate revocation and all 22 mobile wireframes",
   );
 
   const expiredSecret = "E".repeat(43);
@@ -725,6 +866,90 @@ try {
       .get("alice@example.invalid").count,
     1,
   );
+  db.exec("DELETE FROM rate_limits");
+  const issueCode = async (email) => {
+    const response = await customer.ctx.request.post(url + "/auth/link", {
+      form: { email, next: "/triage" },
+    });
+    assert.equal(response.status(), 200);
+    const challenge = (await response.text()).match(
+      /name="challenge" value="([^"]+)"/,
+    )[1];
+    const body = db
+      .prepare(
+        "SELECT body FROM local_mail WHERE recipient=? ORDER BY id DESC LIMIT 1",
+      )
+      .get(email).body;
+    return {
+      challenge,
+      code: body.match(/code: (\d{6})/)[1],
+      token: new URL(body.match(/http:\/\/\S+/)[0]).searchParams.get("token"),
+    };
+  };
+  const locked = await issueCode("locked@example.invalid");
+  for (let i = 0; i < 5; i++)
+    assert.equal(
+      (
+        await customer.ctx.request.post(url + "/auth/code", {
+          form: { challenge: locked.challenge, code: "wrong" },
+        })
+      ).status(),
+      400,
+    );
+  assert.equal(
+    (
+      await customer.ctx.request.post(url + "/auth/code", { form: locked })
+    ).status(),
+    400,
+  );
+  assert.equal(
+    (
+      await customer.ctx.request.post(url + "/auth/verify", {
+        form: { token: locked.token },
+        maxRedirects: 0,
+      })
+    ).status(),
+    303,
+  );
+  const racing = await issueCode("race@example.invalid");
+  const attempts = await Promise.all(
+    [1, 2].map(() =>
+      customer.ctx.request.post(url + "/auth/code", {
+        form: { challenge: racing.challenge, code: racing.code },
+        maxRedirects: 0,
+      }),
+    ),
+  );
+  assert.deepEqual(attempts.map((r) => r.status()).sort(), [303, 400]);
+  assert.equal(
+    attempts.find((r) => r.status() === 303).headers().location,
+    "/triage",
+  );
+  assert.equal(
+    (
+      await customer.ctx.request.post(url + "/auth/verify", {
+        form: { token: racing.token },
+        maxRedirects: 0,
+      })
+    ).status(),
+    400,
+  );
+  const old = await issueCode("old@example.invalid");
+  db.prepare("UPDATE login_codes SET expires_at=1 WHERE challenge_hash=?").run(
+    createHash("sha256").update(old.challenge).digest("hex"),
+  );
+  assert.equal(
+    (
+      await customer.ctx.request.post(url + "/auth/code", {
+        form: { challenge: old.challenge, code: old.code },
+      })
+    ).status(),
+    400,
+  );
+  pass(
+    "Codes expire, lock after five failures, share single-use redemption with links, and preserve return paths under concurrent submission",
+  );
+
   db.prepare("INSERT INTO rate_limits VALUES (?,?,?,?)").run(
     "expired-test",
     0,

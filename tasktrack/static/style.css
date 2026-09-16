@@ -1253,3 +1253,160 @@ dialog::backdrop {
     padding-bottom: 22px;
   }
 }
+
+/* Project landing and thumb-friendly navigation. */
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+}
+.project-tile,
+.triage-entry,
+.triage-item {
+  display: block;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+}
+.project-tile h2 {
+  margin: 12px 0 24px;
+  overflow-wrap: anywhere;
+}
+.triage-entry {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.triage-entry:hover,
+.project-tile:hover,
+.triage-item:hover {
+  background: #f1f7f4;
+}
+.triage-list {
+  display: grid;
+  gap: 10px;
+}
+.triage-item strong,
+.triage-item small {
+  display: block;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.mobile-nav-toggle {
+  display: none;
+}
+@media (max-width: 700px) {
+  .sidebar {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+  }
+  .sidebar .nav-heading {
+    display: none;
+  }
+  .mobile-nav-toggle {
+    display: block;
+  }
+  #projects {
+    display: none;
+    flex-basis: 100%;
+    flex-direction: column;
+    max-height: 50dvh;
+    overflow: auto;
+  }
+  .nav-open #projects {
+    display: flex;
+  }
+  .project-link {
+    white-space: normal;
+    min-height: 44px;
+  }
+  button,
+  .button,
+  .icon-button,
+  input,
+  select,
+  summary {
+    min-height: 44px;
+  }
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  .topbar {
+    padding: 8px 16px;
+    min-height: 56px;
+    gap: 12px;
+  }
+  #breadcrumb {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  main {
+    padding: 20px 16px max(28px, env(safe-area-inset-bottom));
+  }
+  .page-head {
+    flex-wrap: wrap;
+  }
+  .head-actions {
+    gap: 8px;
+  }
+  .inline-actions {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .markdown {
+    overflow-wrap: anywhere;
+  }
+  .markdown pre {
+    max-width: 100%;
+    overflow: auto;
+  }
+  .task-content,
+  .task-heading,
+  .workspace {
+    min-width: 0;
+  }
+  dialog {
+    max-height: 90dvh;
+    width: calc(100% - 16px);
+    max-width: calc(100% - 16px);
+  }
+  .dialog-foot {
+    position: sticky;
+    bottom: 0;
+    background: white;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+  .project-tile,
+  .triage-item,
+  .triage-entry {
+    padding: 18px;
+  }
+}
+
+@media (max-width: 700px) {
+  .task-aside {
+    order: 1;
+  }
+  .task-content {
+    order: 0;
+  }
+  .task-more-actions {
+    margin: 0 0 16px;
+  }
+  .task-more-actions > summary {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    color: var(--muted);
+  }
+}

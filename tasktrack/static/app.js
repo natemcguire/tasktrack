@@ -326,6 +326,8 @@ function showForm(
 $("#close-dialog").onclick = $("#cancel-dialog").onclick = () =>
   $("#editor").close();
 async function navigate(path) {
+  $(".sidebar").classList.remove("nav-open");
+  $("#toggle-projects").setAttribute("aria-expanded", "false");
   history.pushState({}, "", path);
   state.view = "board";
   state.filters = {};
@@ -345,13 +347,21 @@ window.addEventListener("popstate", () => {
 });
 async function loadProjects() {
   state.projects = await allPages("/projects");
-  $("#projects").innerHTML = state.projects
-    .map(
-      (p) =>
-        `<a class="project-link ${state.project?.id === p.id ? "selected" : ""}" href="/projects/${esc(p.key)}" data-nav ${state.project?.id === p.id ? 'aria-current="page"' : ""}><span class="project-initial">${esc(p.key[0])}</span>${esc(p.name)}</a>`,
-    )
-    .join("");
+  $("#projects").innerHTML =
+    `<a class="project-link" href="/" data-nav>All projects</a><a class="project-link" href="/triage" data-nav>TRIAGE</a>` +
+    state.projects
+      .map(
+        (p) =>
+          `<a class="project-link ${state.project?.id === p.id ? "selected" : ""}" href="/projects/${esc(p.key)}" data-nav ${state.project?.id === p.id ? 'aria-current="page"' : ""}><span class="project-initial">${esc(p.key[0])}</span>${esc(p.name)}</a>`,
+      )
+      .join("");
 }
+$("#toggle-projects").onclick = () => {
+  const button = $("#toggle-projects");
+  const open = button.getAttribute("aria-expanded") !== "true";
+  button.setAttribute("aria-expanded", String(open));
+  $(".sidebar").classList.toggle("nav-open", open);
+};
 $("#add-project").onclick = () => projectForm();
 function projectForm(project = null) {
   const links = project?.document_links || [];
@@ -957,6 +967,16 @@ async function detail(identifier) {
     share.onclick = () => shareTask(task);
     $(".head-actions").append(share);
   }
+  if (matchMedia("(max-width:700px)").matches) {
+    const actions = $("#main > .inline-actions");
+    if (actions) {
+      const more = document.createElement("details");
+      more.className = "task-more-actions";
+      more.innerHTML = "<summary>More actions</summary>";
+      actions.before(more);
+      more.append(actions);
+    }
+  }
   if ($("#move-task")) $("#move-task").onclick = () => moveForm(task);
   document
     .querySelectorAll("[data-action]")
@@ -1230,6 +1250,23 @@ async function shareTask(task) {
     toast(errorText(error));
   }
 }
+async function projectIndex() {
+  state.project = null;
+  document.title = "Projects · Tasktrack";
+  $("#breadcrumb").textContent = "Projects";
+  $("#main").innerHTML =
+    `<div class="page-head"><div><h1>Projects</h1><p class="page-description">Your team's work, in one place.</p></div><button class="button primary" id="index-create">New project</button></div><a class="triage-entry" href="/triage" data-nav><strong>TRIAGE</strong><span>Recent work →</span></a><div class="project-grid">${state.projects.map((p) => `<a class="project-tile" href="/projects/${esc(p.key)}" data-nav><span class="eyebrow">${esc(p.key)}</span><h2>${esc(p.name)}</h2><span class="muted">Open project →</span></a>`).join("") || "<p>No projects yet. Create one to get started.</p>"}</div>`;
+  $("#index-create").onclick = () => projectForm();
+}
+async function triage() {
+  state.project = null;
+  document.title = "Triage · Tasktrack";
+  $("#breadcrumb").textContent = "TRIAGE";
+  const items = await allPages("/tasks");
+  items.sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id - a.id);
+  $("#main").innerHTML =
+    `<div class="page-head"><div><h1>TRIAGE</h1><p class="page-description">Recent work, newest first.</p></div><a class="button" href="/" data-nav>All projects</a></div><div class="triage-list">${items.map((t) => `<a class="triage-item" href="/tasks/${t.id}" data-nav><span class="eyebrow">${esc(t.reference)} · ${esc(states[t.status])}</span><strong>${esc(t.title)}</strong><small>${esc(date(t.updated_at))}</small></a>`).join("") || "<p>No recent work yet.</p>"}</div>`;
+}
 async function route() {
   try {
     const path = decodeURIComponent(location.pathname);
@@ -1241,6 +1278,11 @@ async function route() {
     if (path.startsWith("/projects/"))
       state.project = await api("/projects/by-key/" + path.split("/")[2]);
     await loadProjects();
+    if (path === "/" || path === "/triage") {
+      await (path === "/" ? projectIndex() : triage());
+      await loadProjects();
+      return;
+    }
     if (!state.projects.length) {
       $("#main").innerHTML =
         '<section class="empty-workspace"><span class="brand-mark" aria-hidden="true">t.</span><p class="eyebrow">A CLEAR PLACE TO START</p><h1>Good work starts with context.</h1><p>Bring projects, requirements, and the next action together. Create your first project to make room for the work.</p><button class="button primary" id="first-project">Create your first project</button></section>';

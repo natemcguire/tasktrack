@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from workers import DurableObject, Request, Response, WorkerEntrypoint
 
+from tasktrack import previews
 from tasktrack.accounts import Accounts, digest, safe_next, timestamp, token
 from tasktrack.cloud_store import CloudStore
 from tasktrack.db import Error, encode
@@ -190,7 +191,20 @@ class Default(WorkerEntrypoint):
         parsed = urlsplit(request.url)
         path = unquote(parsed.path)
         try:
-            if parsed.netloc != urlsplit(accounts.origin).netloc:
+            is_preview = (
+                not accounts.local
+                and bool(previews.origin(self.env))
+                and parsed.netloc == urlsplit(previews.origin(self.env)).netloc
+            )
+            # Wrangler rewrites loopback upstream hosts. Keep both local origins
+            # usable without trusting forwarded-host headers in production.
+            if (
+                accounts.local
+                and getattr(self.env, "LOCAL_EMAIL", "") == "1"
+                and (path.startswith("/p/") or path == "/callback")
+            ):
+                is_preview = True
+            if parsed.netloc != urlsplit(accounts.origin).netloc and not is_preview:
                 raise Error(
                     400, "foreign_host", "Use the configured Tasktrack address."
                 )
@@ -209,9 +223,16 @@ class Default(WorkerEntrypoint):
                 raise Error(
                     400, "duplicate_filter", "Supply each query parameter only once."
                 )
-            response = await self.route(
-                request, accounts, path, {k: v[0] for k, v in pairs.items()}
-            )
+            query = {k: v[0] for k, v in pairs.items()}
+            if is_preview and path not in {
+                "/style.css",
+                "/hosted.css",
+                "/favicon.svg",
+                "/preview.js",
+            }:
+                response = await previews.route(self, request, accounts, path, query)
+            else:
+                response = await self.route(request, accounts, path, query)
         except Error as exc:
             response = (
                 Response.json(exc.payload, status=exc.status)
@@ -243,7 +264,10 @@ class Default(WorkerEntrypoint):
                 "X-Content-Type-Options": "nosniff",
                 "Referrer-Policy": "strict-origin",
                 "X-Robots-Tag": "noindex, nofollow",
-                "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+                "Content-Security-Policy": response.headers.get(
+                    "Content-Security-Policy"
+                )
+                or "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
                 "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
             }
         )
@@ -262,27 +286,56 @@ class Default(WorkerEntrypoint):
         method = "GET" if request.method == "HEAD" else request.method
         if (
             path
-            in {"/app.js", "/style.css", "/hosted.js", "/hosted.css", "/favicon.svg"}
+            in {
+                "/app.js",
+                "/auth.js",
+                "/preview.js",
+                "/style.css",
+                "/hosted.js",
+                "/hosted.css",
+                "/favicon.svg",
+            }
             and method == "GET"
         ):
             return await self.env.ASSETS.fetch(request)
         if path == "/healthz" and method == "GET":
             await accounts.one("SELECT 1 FROM users LIMIT 1")
             return Response.json({"status": "ok", "storage": "cloudflare"})
+        returning = re.fullmatch(
+            r"/preview/return/([a-f0-9-]{36})/([A-Za-z0-9_-]{43})", path
+        )
+        if method == "GET" and (path == "/preview/authorize" or returning):
+            return await previews.authorize(
+                self,
+                request,
+                accounts,
+                {"id": returning[1], "challenge": returning[2]} if returning else query,
+            )
         if path in {"/login", "/signup"} and method == "GET":
             return html(auth_page(path[1:], safe_next(query.get("next"))))
         if path == "/auth/link" and method == "POST":
             data = await body_data(request, form=True)
-            await accounts.login_link(
+            challenge = await accounts.login_link(
                 data.get("email"),
                 data.get("next"),
                 request.headers.get("CF-Connecting-IP", "local"),
             )
             return html(
-                auth_page(
-                    message="Your sign-in link is on its way. It expires in 15 minutes."
-                )
+                auth_page(challenge=challenge, next_path=safe_next(data.get("next")))
             )
+        if path == "/auth/code" and method == "POST":
+            data = await body_data(request, form=True)
+            session, next_path = await accounts.redeem_code(
+                data.get("challenge"),
+                data.get("code"),
+                request.headers.get("CF-Connecting-IP", "local"),
+            )
+            if "application/json" in request.headers.get("Accept", ""):
+                return Response.json(
+                    {"next": next_path},
+                    headers={"Set-Cookie": accounts.cookie(session)},
+                )
+            return redirect(next_path, accounts.cookie(session))
         if path == "/auth/verify":
             if method == "GET":
                 secret = query.get("token", "")
@@ -467,7 +520,7 @@ class Default(WorkerEntrypoint):
                 )
             return Response.json(result, status=status)
         if method == "GET" and (
-            path == "/"
+            path in {"/", "/triage"}
             or re.fullmatch(r"/(projects/[A-Za-z0-9]+|tasks/[A-Za-z0-9-]+)", path)
         ):
             asset = await self.env.ASSETS.fetch(accounts.origin + "/")
@@ -506,6 +559,10 @@ class Default(WorkerEntrypoint):
             raise Error(405, "method", "Use POST for this action.")
         data = await body_data(request)
         accounts.csrf(request, identity, data)
+        if path.startswith("/api/account/preview"):
+            return await previews.api(
+                self, request, accounts, identity, path, method, data
+            )
         if path == "/api/account/invite":
             return Response.json({"url": await accounts.invite(identity)})
         if path == "/api/account/token":
@@ -685,6 +742,14 @@ class Default(WorkerEntrypoint):
             [
                 accounts.statement("DELETE FROM sessions WHERE expires_at<?", now),
                 accounts.statement("DELETE FROM login_links WHERE expires_at<?", now),
+                accounts.statement("DELETE FROM login_codes WHERE expires_at<?", now),
+                accounts.statement(
+                    "DELETE FROM preview_grants WHERE expires_at<?", now
+                ),
+                accounts.statement(
+                    "DELETE FROM preview_sessions WHERE expires_at<? OR session_hash NOT IN (SELECT token_hash FROM sessions)",
+                    now,
+                ),
                 accounts.statement("DELETE FROM api_tokens WHERE expires_at<?", now),
                 accounts.statement("DELETE FROM invites WHERE expires_at<?", now),
                 accounts.statement(

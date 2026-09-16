@@ -449,6 +449,16 @@
     #main-viewport { padding: 16px; }
     .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
   }
+  @media (max-width: 860px) {
+    button, .btn, input, select, summary { min-height: 44px; }
+    input, select, textarea { font-size: 16px; }
+    #mobile-navigation { position: sticky; top: 0; z-index: 20; }
+    #mobile-navigation select { width: 100%; }
+    #main-viewport { padding: 12px; }
+    .section-header { flex-wrap: wrap; gap: 12px; }
+    .panel { min-width: 0; }
+    .table-container { max-width: 100%; overflow-x: auto; }
+  }
 </style>
 </head>
 <body>
@@ -2306,7 +2316,8 @@
 
     // Update URL fragment cleanly
     if (history.pushState) {
-      history.pushState(null, null, '#' + sectionId);
+      try { history.pushState(null, null, '#' + sectionId); }
+      catch { if (location.hash !== '#' + sectionId) location.hash = '#' + sectionId; }
     } else {
       location.hash = '#' + sectionId;
     }

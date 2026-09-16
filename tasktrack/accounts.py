@@ -31,7 +31,7 @@ def safe_next(value):
     return (
         value
         if re.fullmatch(
-            r"/(?:invite/[A-Za-z0-9_-]{43}|tasks/[0-9]+|projects/[A-Za-z0-9]+)?",
+            r"/(?:preview/return/[a-f0-9-]{36}/[A-Za-z0-9_-]{43}|triage|invite/[A-Za-z0-9_-]{43}|tasks/[0-9]+|projects/[A-Za-z0-9]+)?",
             value or "",
         )
         else "/"
@@ -93,7 +93,8 @@ class Accounts:
         ):
             raise Error(422, "email", "Enter a valid email address.")
         await self.limit("login-email:" + email, 3)
-        secret = token()
+        secret, challenge = token(), token()
+        code = f"{secrets.randbelow(1000000):06d}"
         await self.run(
             "INSERT INTO login_links VALUES (?,?,?,?)",
             digest(secret),
@@ -101,9 +102,18 @@ class Accounts:
             safe_next(next_path),
             timestamp() + 15 * 60,
         )
+        await self.run(
+            "INSERT INTO login_codes VALUES (?,?,?,0,?)",
+            digest(challenge),
+            digest(secret),
+            digest(challenge + ":" + code),
+            timestamp() + 900,
+        )
         link = self.origin + "/auth/verify?token=" + secret
         body = (
-            "Sign in to Tasktrack:\n\n"
+            "Your Tasktrack sign-in code: "
+            + code
+            + "\n\nIf the code does not work, use this link:\n\n"
             + link
             + "\n\nThis link expires in 15 minutes and works once. If you did not request it, you can ignore this email."
         )
@@ -114,16 +124,20 @@ class Accounts:
                 body,
                 timestamp(),
             )
-            return
+            return challenge
         try:
             await self.env.EMAIL.send(
                 {
                     "from": {
-                        "email": "hello@tasks.eastbayprojects.com",
+                        "email": getattr(
+                            self.env,
+                            "MAIL_FROM",
+                            "hello@" + urlsplit(self.origin).hostname,
+                        ),
                         "name": "Tasktrack",
                     },
                     "to": email,
-                    "subject": "Your Tasktrack sign-in link",
+                    "subject": code + " is your Tasktrack sign-in code",
                     "text": body,
                 }
             )
@@ -135,6 +149,33 @@ class Accounts:
                 "We could not send your sign-in link. Please try again shortly.",
             ) from None
 
+        return challenge
+
+    async def redeem_code(self, challenge, code, ip):
+        await self.limit("code-ip:" + ip, 30)
+        if not isinstance(challenge, str) or not re.fullmatch(
+            r"[A-Za-z0-9_-]{43}", challenge
+        ):
+            raise Error(400, "invalid_code", "Request a new sign-in code.")
+        row = await self.one(
+            "UPDATE login_codes SET attempts=attempts+1 WHERE challenge_hash=? AND attempts<5 AND expires_at>? RETURNING link_hash,code_hash",
+            digest(challenge),
+            timestamp(),
+        )
+        if (
+            not row
+            or not isinstance(code, str)
+            or not secrets.compare_digest(
+                row["code_hash"], digest(challenge + ":" + code)
+            )
+        ):
+            raise Error(
+                400,
+                "invalid_code",
+                "That code is incorrect, expired or already used. Try again or request a new code.",
+            )
+        return await self.redeem_hash(row["link_hash"])
+
     async def redeem(self, secret, ip):
         await self.limit("redeem:" + ip, 30)
         if not isinstance(secret, str) or not re.fullmatch(
@@ -143,10 +184,13 @@ class Accounts:
             raise Error(
                 400, "invalid_link", "This sign-in link is invalid. Request a new one."
             )
+        return await self.redeem_hash(digest(secret))
+
+    async def redeem_hash(self, link_hash):
         # DELETE ... RETURNING makes the link single-use across concurrent requests.
         link = await self.one(
             "DELETE FROM login_links WHERE token_hash=? AND expires_at>? RETURNING email,next_path",
-            digest(secret),
+            link_hash,
             timestamp(),
         )
         if not link:
@@ -203,14 +247,27 @@ class Accounts:
             + ("" if self.local else "; Secure")
         )
 
-    async def authenticate(self, request):
+    async def authenticate(self, request, preview_secret=None):
         authorization = request.headers.get("Authorization", "")
         bearer = authorization.startswith("Bearer ")
         secret = (
             authorization[7:] if bearer else cookie_value(request, self.cookie_name)
         )
+        if preview_secret is not None:
+            secret = preview_secret
+            bearer = False
         if not secret or len(secret) > 300:
             return None
+        session_hash = digest(secret)
+        if preview_secret is not None:
+            preview = await self.one(
+                "SELECT session_hash FROM preview_sessions WHERE token_hash=? AND expires_at>?",
+                session_hash,
+                timestamp(),
+            )
+            if not preview:
+                return None
+            session_hash = preview["session_hash"]
         table = "api_tokens" if bearer else "sessions"
         extra = "s.actor,s.id AS token_id" if bearer else "s.csrf,u.email AS actor"
         identity = await self.one(
@@ -218,11 +275,11 @@ class Accounts:
             f"FROM {table} s JOIN users u ON u.id=s.user_id JOIN workspaces w ON w.id=s.workspace_id "
             "JOIN memberships m ON m.user_id=s.user_id AND m.workspace_id=s.workspace_id "
             "WHERE s.token_hash=? AND s.expires_at>?",
-            digest(secret),
+            session_hash,
             timestamp(),
         )
         if identity:
-            identity.update(bearer=bearer, session_hash=digest(secret))
+            identity.update(bearer=bearer, session_hash=session_hash)
         return identity
 
     def csrf(self, request, identity, body=None):

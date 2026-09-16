@@ -202,3 +202,44 @@
     font-size: 30px;
   }
 }
+
+.preview-shell {
+  padding: 16px;
+  max-width: none;
+}
+.preview-shell header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.preview-shell h1 {
+  font-size: 20px;
+  margin: 0;
+}
+.preview-shell iframe {
+  display: block;
+  width: 100%;
+  height: calc(100dvh - 190px);
+  min-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+body:has(.preview-shell) .hosted-nav {
+  display: none;
+}
+@media (max-width: 700px) {
+  .preview-shell {
+    padding: 8px;
+  }
+  .preview-shell header {
+    gap: 8px;
+  }
+  .preview-shell h1 {
+    font-size: 16px;
+  }
+  .preview-shell iframe {
+    height: calc(100dvh - 130px);
+  }
+}

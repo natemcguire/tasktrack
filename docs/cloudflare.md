@@ -5,9 +5,15 @@ API, accounts, files and sign-in email on Cloudflare.
 
 ## Sign in and share
 
-Enter your email. The link expires after 15 minutes and works once. Opening the
-email link shows a Continue button; mail scanners cannot consume it by following
-the URL. Your first sign-in creates a workspace. Browser sessions last 30 days.
+Enter your email and use the six-digit code. Complete code entry or supported
+AutoFill submits automatically. The email also contains a fallback sign-in link
+that continues automatically in a visible browser. Both expire after 15 minutes
+and share one redemption: using either invalidates the other. Five incorrect
+code attempts lock that challenge; the fallback link remains available. GET/HEAD
+requests do not consume links; a browser submits POST to finish sign-in. A
+scanner that executes visible-page JavaScript can submit that POST too. Your
+first sign-in creates a workspace. Browser sessions last 30 days. The landing
+page lists projects and links to TRIAGE. See [private previews](previews.md).
 
 **Account** lets the owner rename the workspace, invite a teammate, remove a
 member and issue agent tokens. Each invitation works once and expires in 48 hours.

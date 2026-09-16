@@ -125,11 +125,11 @@ try {
   page.on("pageerror", (error) => errors.push(error.stack));
   await page.goto(url);
   await expect(
-    page.getByRole("heading", { name: "Good work starts with context." }),
+    page.getByRole("heading", { name: "Projects", exact: true }),
   ).toBeVisible();
   await page.getByLabel("Acting as").fill("nate");
   await page.getByLabel("Acting as").blur();
-  await page.getByRole("button", { name: "Create your first project" }).click();
+  await page.getByRole("button", { name: "New project" }).click();
   await dialog().getByLabel("Project key").fill("hbr");
   await dialog().getByLabel("Project name").fill("Harbor checkout");
   await dialog()
