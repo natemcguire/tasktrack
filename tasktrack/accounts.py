@@ -217,14 +217,14 @@ class Accounts:
                     now,
                 ),
                 self.statement(
-                    "INSERT INTO workspaces SELECT ?,?,id,? FROM users WHERE id=?",
+                    "INSERT INTO workspaces(id,name,created_by,created_at) SELECT ?,?,id,? FROM users WHERE id=?",
                     wid,
                     name + "’s workspace",
                     now,
                     uid,
                 ),
                 self.statement(
-                    "INSERT INTO memberships SELECT ?,?,'owner',? WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=?)",
+                    "INSERT INTO memberships(workspace_id,user_id,role,created_at) SELECT ?,?,'owner',? WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=?)",
                     wid,
                     uid,
                     now,
@@ -402,7 +402,7 @@ class Accounts:
                     timestamp(),
                 ),
                 self.statement(
-                    "INSERT OR IGNORE INTO memberships SELECT workspace_id,?,'member',? FROM invites WHERE token_hash=? AND used_by=?",
+                    "INSERT OR IGNORE INTO memberships(workspace_id,user_id,role,created_at) SELECT workspace_id,?,'member',? FROM invites WHERE token_hash=? AND used_by=?",
                     identity["user_id"],
                     timestamp(),
                     digest(secret),
