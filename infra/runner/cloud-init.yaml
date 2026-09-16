@@ -1,0 +1,92 @@
+#cloud-config
+# Render __OPERATOR_SSH_PUBLIC_KEY__ privately before use. Ubuntu 24.04 x86_64.
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - jq
+  - tmux
+  - ripgrep
+  - build-essential
+  - python3-venv
+  - pipx
+  - ufw
+  - unattended-upgrades
+  - bubblewrap
+  - apparmor-profiles
+  - apparmor-utils
+groups:
+  - operator
+users:
+  - name: operator
+    primary_group: operator
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    lock_passwd: true
+    ssh_authorized_keys:
+      - __OPERATOR_SSH_PUBLIC_KEY__
+  - name: runner
+    shell: /bin/bash
+    lock_passwd: true
+ssh_pwauth: false
+disable_root: true
+write_files:
+  - path: /etc/ssh/sshd_config.d/00-runner.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PubkeyAuthentication yes
+      AllowUsers operator
+      X11Forwarding no
+      AllowAgentForwarding no
+  - path: /etc/sysctl.d/90-runner.conf
+    permissions: '0644'
+    content: |
+      vm.swappiness=10
+  - path: /etc/systemd/journald.conf.d/runner.conf
+    permissions: '0644'
+    content: |
+      [Journal]
+      SystemMaxUse=200M
+      MaxRetentionSec=7day
+  - path: /etc/systemd/system/agent-jobs.slice
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Resource budget for sequential agent work
+      [Slice]
+      MemoryHigh=2500M
+      MemoryMax=3G
+      MemorySwapMax=2G
+      CPUQuota=150%
+      TasksMax=512
+  - path: /etc/apt/apt.conf.d/52runner-security
+    permissions: '0644'
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      Unattended-Upgrade::Automatic-Reboot "false";
+runcmd:
+  - [install, -m, '0644', /usr/share/apparmor/extra-profiles/bwrap-userns-restrict, /etc/apparmor.d/bwrap-userns-restrict]
+  - [apparmor_parser, -r, /etc/apparmor.d/bwrap-userns-restrict]
+  - [install, -d, -m, '0700', -o, runner, -g, runner, /srv/tasktrack/projects]
+  - [install, -d, -m, '0700', -o, runner, -g, runner, /srv/tasktrack/checkpoints]
+  - [chmod, '0700', /home/runner]
+  - [bash, -c, 'if ! test -f /swapfile; then fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && printf "/swapfile none swap sw 0 0\n" >> /etc/fstab; fi']
+  - [sysctl, --system]
+  - [ufw, default, deny, incoming]
+  - [ufw, default, allow, outgoing]
+  - [ufw, allow, OpenSSH]
+  - [ufw, --force, enable]
+  - [sshd, -t]
+  - [systemctl, restart, ssh]
+  - [systemctl, daemon-reload]
+  - [systemctl, restart, systemd-journald]
+  - [bash, -ec, "id operator && id runner && test -s /home/operator/.ssh/authorized_keys && sshd -t && touch /var/lib/runner-bootstrap-complete"]
+final_message: 'Private runner base provisioning finished. Verify cloud-init status before use.'

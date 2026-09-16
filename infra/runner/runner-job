@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Manual, single-host operator helper. Not a multi-tenant execution service.
+set -euo pipefail
+if [[ $EUID -ne 0 || $# -lt 2 ]]; then
+  echo 'Usage: sudo runner-job /srv/tasktrack/projects/PROJECT COMMAND [ARGS...]' >&2
+  exit 64
+fi
+project_dir=$(realpath -e -- "$1")
+shift
+case "$project_dir" in
+  /srv/tasktrack/projects/*) ;;
+  *) echo 'Project must be under /srv/tasktrack/projects' >&2; exit 64 ;;
+esac
+[[ -d "$project_dir" ]] || exit 64
+exec systemd-run --quiet --wait --pipe --collect \
+  --unit="agent-manual-$(date +%s)-$$" \
+  --slice=agent-jobs.slice --uid=runner --gid=runner \
+  --working-directory="$project_dir" \
+  --setenv=HOME=/home/runner \
+  --setenv=PATH=/home/runner/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  --property=UMask=0077 --property=NoNewPrivileges=yes \
+  --property=ProtectSystem=full --property=PrivateTmp=yes \
+  /usr/bin/flock --nonblock --conflict-exit-code 75 \
+  /srv/tasktrack/checkpoints/agent-job.lock "$@"
