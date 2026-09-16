@@ -6,7 +6,7 @@
     "test:browser": "node tests/browser.mjs",
     "test:hosted": "node tests/hosted.mjs",
     "dev:cloudflare": "wrangler d1 migrations apply tasktrack-accounts --local && uv run --group cloudflare pywrangler dev --local --ip 127.0.0.1 --port 8787 --local-upstream 127.0.0.1:8787 --var PUBLIC_URL:http://127.0.0.1:8787 --var LOCAL_EMAIL:1",
-    "deploy:cloudflare": "wrangler d1 migrations apply tasktrack-accounts --remote && uv run --group cloudflare pywrangler deploy"
+    "deploy:cloudflare": "python3 cloudflare/deploy.py"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

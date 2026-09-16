@@ -1410,3 +1410,132 @@ dialog::backdrop {
     color: var(--muted);
   }
 }
+
+.mobile-account {
+  display: none;
+}
+@media (max-width: 700px) {
+  .sidebar {
+    position: relative;
+    z-index: 30;
+  }
+  .sidebar #projects {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 12px;
+    right: 12px;
+    margin: 0;
+    padding: 10px;
+    max-height: min(70dvh, 520px);
+    background: var(--paper, #fff);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 16px 48px #18352b26;
+  }
+  .nav-open #projects {
+    animation: menu-in 120ms ease-out;
+  }
+  .mobile-account {
+    display: flex;
+  }
+  .project-link {
+    border-radius: 8px;
+  }
+  .project-link:active {
+    background: #e4ede7;
+  }
+  .button,
+  .project-tile,
+  .triage-item {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-open #projects {
+    animation: none;
+  }
+}
+
+/* Color is redundant with the status heading, never the only status cue. */
+.column.backlog {
+  background: #f3f1eb;
+  border-color: #ded9cf;
+}
+.column.in_progress {
+  background: #eaf2fc;
+  border-color: #cadcf1;
+}
+.column.review {
+  background: #f4edfa;
+  border-color: #e0cfee;
+}
+.column.done {
+  background: #eaf5ee;
+  border-color: #cde3d5;
+}
+@media (max-width: 700px) {
+  .board {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    padding: 0 0 16px;
+    scrollbar-width: thin;
+  }
+  .board .column {
+    display: block;
+    flex: 0 0 88%;
+    min-width: 0;
+    scroll-snap-align: start;
+  }
+  .board .column:last-child {
+    margin-right: 12px;
+  }
+}
+
+.comment-thread {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0 18px;
+  margin-bottom: 16px;
+  background: white;
+}
+.comment-reply {
+  margin-left: 18px;
+  padding-left: 16px;
+  border-left: 2px solid #cbdcd2;
+}
+.reply-context {
+  margin: 0 0 16px;
+  padding: 12px;
+  border-left: 3px solid #bdd2c5;
+  color: var(--muted);
+  background: #f4f7f5;
+  overflow-wrap: anywhere;
+}
+#comments-section {
+  scroll-margin-top: 16px;
+}
+@media (max-width: 700px) {
+  .comment-thread {
+    padding: 0 12px;
+  }
+  .comment-reply {
+    margin-left: 8px;
+    padding-left: 12px;
+  }
+  .icon-button {
+    min-width: 44px;
+  }
+}

@@ -15,3 +15,5 @@ tasktrack/vendor/
 src/vendor/
 python_modules/
 pylock.toml
+
+wrangler.private.json

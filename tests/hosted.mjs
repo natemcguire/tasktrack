@@ -354,7 +354,7 @@ try {
   await alice.page.goto(url + "/projects/HBR");
   await alice.page.setViewportSize({ width: 390, height: 844 });
   await expect(
-    alice.page.getByRole("button", { name: "Projects", exact: true }),
+    alice.page.getByRole("button", { name: "Menu", exact: true }),
   ).toBeVisible();
   assert.ok(
     await alice.page.evaluate(
@@ -866,6 +866,133 @@ try {
       .get("alice@example.invalid").count,
     1,
   );
+  const parentComment = await api(alice, `/tasks/${task.id}/comments`, {
+    method: "POST",
+    status: 201,
+    body: { body: "Please make the controls clearer." },
+  });
+  await alice.page.goto(url + "/tasks/" + task.id);
+  await alice.page.locator(`#comment-${parentComment.id} [data-reply]`).click();
+  await alice.page
+    .getByRole("dialog")
+    .getByLabel("Comment", { exact: true })
+    .fill("Updated the mobile controls.");
+  await alice.page
+    .getByRole("button", { name: "Post reply", exact: true })
+    .click();
+  await expect(
+    alice.page
+      .locator(".comment-reply")
+      .getByText("Updated the mobile controls."),
+  ).toBeVisible();
+  const replies = (await api(alice, `/tasks/${task.id}/comments`)).items;
+  assert.equal(replies.at(-1).parent_id, parentComment.id);
+  const agentToken = await request(alice, "/api/account/token", {
+    method: "POST",
+    body: { name: "comment-review" },
+  });
+  const agentReply = cli(
+    agentToken.token,
+    "task",
+    "comment",
+    String(task.id),
+    "--reply-to",
+    String(parentComment.id),
+    "--body",
+    "Agent checked the new layout.",
+  );
+  assert.equal(agentReply.actor, "agent:comment-review");
+  assert.equal(agentReply.parent_id, parentComment.id);
+  await api(alice, `/tasks/${extra.id}/comments`, {
+    method: "POST",
+    status: 422,
+    body: { body: "Wrong task", parent_id: parentComment.id },
+  });
+  await alice.page.reload();
+  await expect(
+    alice.page.getByText("Agent checked the new layout.", { exact: true }),
+  ).toBeVisible();
+  pass(
+    "Threaded human replies and CLI agent replies persist with attribution; cross-task replies are rejected",
+  );
+
+  const perfProject = await api(alice, "/projects", {
+    method: "POST",
+    status: 201,
+    body: { key: "PERF", name: "Performance review" },
+  });
+  await createTask(alice, perfProject, "A long design document", {
+    description_markdown: "Detailed product requirements. ".repeat(2500),
+  });
+  const fullList = await api(alice, `/tasks?project_id=${perfProject.id}`);
+  const compact = await api(
+    alice,
+    `/board?project_id=${perfProject.id}&limit=20`,
+  );
+  assert.ok(
+    JSON.stringify(compact).length < JSON.stringify(fullList).length / 10,
+  );
+  const requests = [];
+  const capture = (r) => {
+    const u = new URL(r.url());
+    if (u.pathname.startsWith("/api/v1/")) requests.push(u.pathname);
+  };
+  alice.page.on("request", capture);
+  const loaded = await alice.page.goto(url + "/projects/PERF");
+  const markup = await loaded.text();
+  assert.ok(markup.includes('id="tt-bootstrap"'));
+  assert.ok(!markup.includes("Opening your workspace"));
+  await expect(alice.page.locator(".card")).toHaveCount(1);
+  assert.equal(
+    requests.filter((p) => p === "/api/v1/board" || p === "/api/v1/projects")
+      .length,
+    0,
+  );
+  requests.length = 0;
+  await alice.page.locator('#projects a[href="/projects/HBR"]').click();
+  await expect(
+    alice.page.getByRole("heading", { name: "Harbor checkout", exact: true }),
+  ).toBeVisible();
+  await expect(alice.page.locator("#board-counts")).not.toHaveText(
+    "Loading tasks…",
+  );
+  assert.equal(requests.filter((p) => p === "/api/v1/board").length, 1);
+  requests.length = 0;
+  await alice.page.locator('#projects a[href="/projects/PERF"]').click();
+  await expect(alice.page.locator(".card")).toHaveCount(1);
+  assert.equal(requests.filter((p) => p === "/api/v1/board").length, 0);
+  alice.page.off("request", capture);
+  await alice.page.setViewportSize({ width: 390, height: 844 });
+  await alice.page.getByRole("button", { name: "Menu", exact: true }).click();
+  await expect(
+    alice.page
+      .locator("#projects")
+      .getByRole("link", { name: "TRIAGE", exact: true }),
+  ).toBeVisible();
+  await alice.page.keyboard.press("Escape");
+  await expect(
+    alice.page.getByRole("button", { name: "Menu", exact: true }),
+  ).toHaveAttribute("aria-expanded", "false");
+  assert.ok(
+    await alice.page
+      .locator(".board")
+      .evaluate((n) => n.scrollWidth > n.clientWidth),
+  );
+  const colors = await alice.page
+    .locator(".column")
+    .evaluateAll((nodes) =>
+      nodes.map((n) => getComputedStyle(n).backgroundColor),
+    );
+  assert.equal(new Set(colors).size, 4);
+  await alice.page.screenshot({
+    path: path.join(artifacts, "hosted-board-mobile.png"),
+    fullPage: true,
+  });
+  await alice.page.setViewportSize({ width: 1440, height: 1000 });
+  pass(
+    "Hydrated reload avoids data refetches, project switch uses one compact request, return switch is cached, and mobile columns scroll with distinct colors",
+  );
+
   db.exec("DELETE FROM rate_limits");
   const issueCode = async (email) => {
     const response = await customer.ctx.request.post(url + "/auth/link", {

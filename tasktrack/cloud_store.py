@@ -75,7 +75,11 @@ class CloudStore:
             return Cursor([], 0)
         result = self.sql.exec(statement, *params)
         rows = [Row(row) for row in result.toArray()]
-        lastrowid = self.sql.exec("SELECT last_insert_rowid() AS id").one()["id"]
+        lastrowid = (
+            self.sql.exec("SELECT last_insert_rowid() AS id").one()["id"]
+            if statement.lstrip().upper().startswith("INSERT")
+            else 0
+        )
         return Cursor(rows, lastrowid)
 
     def put_blob(self, content):

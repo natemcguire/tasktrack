@@ -198,10 +198,15 @@ class Service:
             raise Error(404, "not_found", f"Task {identifier} does not exist.")
         return {**dict(row), **json.loads(row["data"])} | {"data": None}
 
-    def public_task(self, c, identifier):
+    def public_task(self, c, identifier, summary=False, project_cache=None):
         task = self.task(c, identifier)
         task.pop("data", None)
-        project = self.project(c, task["project_id"])
+        if project_cache is not None:
+            if task["project_id"] not in project_cache:
+                project_cache[task["project_id"]] = self.project(c, task["project_id"])
+            project = project_cache[task["project_id"]]
+        else:
+            project = self.project(c, task["project_id"])
         task.update(
             instance_id=self.instance_id,
             project_key=project["key"],
@@ -238,29 +243,30 @@ class Service:
             and task["kind"] == "task"
             and not task["execution"]
         )
-        links = [
-            dict(r)
-            for r in c.execute(
-                "SELECT source,project,thread_id,is_primary AS 'primary' FROM thread_links WHERE task_id=? ORDER BY is_primary DESC,thread_id,source,project",
-                (task["id"],),
-            )
-        ]
-        for link in links:
-            link["primary"] = bool(link["primary"])
-            template = (
-                self.config.get("inbox_instances", {})
-                .get(link["source"], {})
-                .get("thread_url_template")
-            )
-            link["url"] = None
-            if template and urlparse(template).scheme in {"http", "https"}:
-                try:
-                    link["url"] = template.format(
-                        **{k: quote(str(v), safe="") for k, v in link.items()}
-                    )
-                except (ValueError, KeyError):
-                    pass
-        task["thread_links"] = links
+        if not summary:
+            links = [
+                dict(r)
+                for r in c.execute(
+                    "SELECT source,project,thread_id,is_primary AS 'primary' FROM thread_links WHERE task_id=? ORDER BY is_primary DESC,thread_id,source,project",
+                    (task["id"],),
+                )
+            ]
+            for link in links:
+                link["primary"] = bool(link["primary"])
+                template = (
+                    self.config.get("inbox_instances", {})
+                    .get(link["source"], {})
+                    .get("thread_url_template")
+                )
+                link["url"] = None
+                if template and urlparse(template).scheme in {"http", "https"}:
+                    try:
+                        link["url"] = template.format(
+                            **{k: quote(str(v), safe="") for k, v in link.items()}
+                        )
+                    except (ValueError, KeyError):
+                        pass
+            task["thread_links"] = links
         if task["parent_id"]:
             parent = self.task(c, task["parent_id"])
             task["epic"] = {
@@ -283,6 +289,31 @@ class Service:
             task["children_url"] = (
                 f"/api/v1/tasks?project_id={task['project_id']}&parent_id={task['id']}"
             )
+        if summary:
+            return {
+                k: v
+                for k, v in task.items()
+                if k
+                in {
+                    "id",
+                    "project_id",
+                    "reference",
+                    "title",
+                    "kind",
+                    "status",
+                    "assignee",
+                    "priority",
+                    "version",
+                    "execution",
+                    "blocked",
+                    "blockers",
+                    "pickup_needed",
+                    "epic",
+                    "progress",
+                    "updated_at",
+                    "archived_at",
+                }
+            } | {"_summary": True}
         return task
 
     def event(self, c, kind, entity_id, project_id, operation, context, detail):
@@ -1076,10 +1107,18 @@ class Service:
 
     def append(self, c, task, action, body, context, upload):
         if action == "comments":
-            fields(body, {"body"})
+            fields(body, {"body", "parent_id"})
+            parent_id = body.get("parent_id")
+            if parent_id is not None:
+                integer(parent_id, "parent_id")
+                if not c.execute(
+                    "SELECT 1 FROM comments WHERE id=? AND task_id=?",
+                    (parent_id, task["id"]),
+                ).fetchone():
+                    invalid("parent_id", "Reply to a comment on this task.")
             text = string(body.get("body"), "body", True)
             identifier = c.execute(
-                "INSERT INTO comments(task_id,actor,session,via,body,created_at) VALUES (?,?,?,?,?,?)",
+                "INSERT INTO comments(task_id,actor,session,via,body,created_at,parent_id) VALUES (?,?,?,?,?,?,?)",
                 (
                     task["id"],
                     context["actor"],
@@ -1087,6 +1126,7 @@ class Service:
                     context["via"],
                     text,
                     now(),
+                    parent_id,
                 ),
             ).lastrowid
             result = dict(
@@ -1208,6 +1248,142 @@ class Service:
             **(extra or {}),
         }
 
+    def task_list(self, c, path, query, actor=None):
+        is_brief = path == "/api/v1/brief"
+        allowed = {
+            "project_id",
+            "status",
+            "assignee",
+            "parent_id",
+            "priority",
+            "blocked",
+            "archived",
+            "q",
+            "kind",
+            "view",
+            "sort",
+        }
+        limit = self.page_options(query, allowed if not is_brief else {"project_id"})
+        if is_brief and not actor:
+            raise Error(400, "missing_actor", "Supply X-Actor or --as for a brief.")
+        for key in ("status", "priority", "kind"):
+            choices = {
+                "status": STATUSES,
+                "priority": PRIORITIES,
+                "kind": ("task", "epic"),
+            }[key]
+            if key in query and query[key] not in choices:
+                invalid(key, f"{key} must be one of: {', '.join(choices)}.")
+        for key in ("archived", "blocked"):
+            if key in query and query[key] not in {"true", "false"}:
+                invalid(key, f"{key} must be true or false.")
+        if "parent_id" in query:
+            try:
+                integer(int(query["parent_id"]), "parent_id")
+            except (ValueError, TypeError):
+                invalid("parent_id", "parent_id must be a positive task ID.")
+        where, params = (
+            [
+                "archived_at IS "
+                + ("NOT NULL" if query.get("archived") == "true" else "NULL")
+            ],
+            [],
+        )
+        if "project_id" in query:
+            project = self.project(c, query["project_id"])
+            where.append("project_id=?")
+            params.append(project["id"])
+        total_where, total_params = list(where), list(params)
+        if "status" in query:
+            total_where.append("status=?")
+            total_params.append(query["status"])
+        project_total = c.execute(
+            "SELECT COUNT(*) FROM tasks WHERE " + " AND ".join(total_where),
+            total_params,
+        ).fetchone()[0]
+        for key in ("status", "assignee", "kind", "parent_id"):
+            if key in query:
+                where.append(key + "=?")
+                params.append(query[key])
+        rows = c.execute(
+            "SELECT id FROM tasks WHERE "
+            + " AND ".join(where)
+            + " ORDER BY CASE status WHEN 'backlog' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'review' THEN 2 ELSE 3 END,position,id",
+            params,
+        ).fetchall()
+        items = []
+        summary = query.get("view") == "summary"
+        if "view" in query and not summary:
+            invalid("view", "Use view=summary or omit view for full records.")
+        project_cache = {}
+        search = query.get("q", "").casefold().strip()
+        for row in rows:
+            task = self.public_task(
+                c,
+                row[0],
+                summary=summary and not bool(search),
+                project_cache=project_cache,
+            )
+            if is_brief and (
+                task["status"] == "done"
+                or not (
+                    task["assignee"] == actor
+                    or (task["execution"] and task["execution"]["actor"] == actor)
+                )
+            ):
+                continue
+            if "priority" in query and task["priority"] != query["priority"]:
+                continue
+            if "blocked" in query and task["blocked"] != (query["blocked"] == "true"):
+                continue
+            if search:
+                aliases = self.project(c, task["project_id"])["aliases"]
+                haystack = " ".join(
+                    [
+                        task["title"],
+                        task["description_markdown"],
+                        *[f"{key}-{task['id']}" for key in aliases],
+                    ]
+                ).casefold()
+                if search not in haystack:
+                    continue
+                if summary:
+                    task = self.public_task(
+                        c, row[0], summary=True, project_cache=project_cache
+                    )
+            if is_brief:
+                task = {
+                    k: task[k]
+                    for k in (
+                        "id",
+                        "reference",
+                        "title",
+                        "kind",
+                        "status",
+                        "assignee",
+                        "execution",
+                        "version",
+                        "blockers",
+                        "checkpoint",
+                        "result",
+                        "thread_links",
+                        "url",
+                        "updated_at",
+                    )
+                }
+            items.append(task)
+        if "sort" in query:
+            if query["sort"] != "recent":
+                invalid("sort", "Use sort=recent or omit sort.")
+            items.sort(key=lambda task: (task["updated_at"], task["id"]), reverse=True)
+        return self.page(
+            items,
+            query,
+            path + (":" + actor if is_brief else ""),
+            limit,
+            {"project_total": project_total, "instance_id": self.instance_id},
+        )
+
     def read(self, path, query=None, actor=None):
         query = query or {}
         with self.store.connection() as c:
@@ -1241,129 +1417,44 @@ class Service:
                 fields(query, set())
                 return self.project(c, parts[2])
             if parts in (["tasks"], ["brief"]):
-                is_brief = parts == ["brief"]
-                allowed = {
-                    "project_id",
-                    "status",
-                    "assignee",
-                    "parent_id",
-                    "priority",
-                    "blocked",
-                    "archived",
-                    "q",
-                    "kind",
-                }
-                limit = self.page_options(
-                    query, allowed if not is_brief else {"project_id"}
-                )
-                if is_brief and not actor:
-                    raise Error(
-                        400, "missing_actor", "Supply X-Actor or --as for a brief."
-                    )
-                for key in ("status", "priority", "kind"):
-                    choices = {
-                        "status": STATUSES,
-                        "priority": PRIORITIES,
-                        "kind": ("task", "epic"),
-                    }[key]
-                    if key in query and query[key] not in choices:
-                        invalid(key, f"{key} must be one of: {', '.join(choices)}.")
-                for key in ("archived", "blocked"):
-                    if key in query and query[key] not in {"true", "false"}:
-                        invalid(key, f"{key} must be true or false.")
-                if "parent_id" in query:
-                    try:
-                        integer(int(query["parent_id"]), "parent_id")
-                    except (ValueError, TypeError):
-                        invalid("parent_id", "parent_id must be a positive task ID.")
-                where, params = (
-                    [
-                        "archived_at IS "
-                        + ("NOT NULL" if query.get("archived") == "true" else "NULL")
-                    ],
-                    [],
-                )
-                if "project_id" in query:
-                    project = self.project(c, query["project_id"])
-                    where.append("project_id=?")
-                    params.append(project["id"])
-                total_where, total_params = list(where), list(params)
-                if "status" in query:
-                    total_where.append("status=?")
-                    total_params.append(query["status"])
-                project_total = c.execute(
-                    "SELECT COUNT(*) FROM tasks WHERE " + " AND ".join(total_where),
-                    total_params,
-                ).fetchone()[0]
-                for key in ("status", "assignee", "kind", "parent_id"):
-                    if key in query:
-                        where.append(key + "=?")
-                        params.append(query[key])
-                rows = c.execute(
-                    "SELECT id FROM tasks WHERE "
-                    + " AND ".join(where)
-                    + " ORDER BY CASE status WHEN 'backlog' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'review' THEN 2 ELSE 3 END,position,id",
-                    params,
-                ).fetchall()
-                items = []
-                search = query.get("q", "").casefold().strip()
-                for row in rows:
-                    task = self.public_task(c, row[0])
-                    if is_brief and (
-                        task["status"] == "done"
-                        or not (
-                            task["assignee"] == actor
-                            or (
-                                task["execution"]
-                                and task["execution"]["actor"] == actor
-                            )
-                        )
-                    ):
-                        continue
-                    if "priority" in query and task["priority"] != query["priority"]:
-                        continue
-                    if "blocked" in query and task["blocked"] != (
-                        query["blocked"] == "true"
-                    ):
-                        continue
-                    aliases = self.project(c, task["project_id"])["aliases"]
-                    haystack = " ".join(
-                        [
-                            task["title"],
-                            task["description_markdown"],
-                            *[f"{key}-{task['id']}" for key in aliases],
-                        ]
-                    ).casefold()
-                    if search and search not in haystack:
-                        continue
-                    if is_brief:
-                        task = {
-                            k: task[k]
-                            for k in (
-                                "id",
-                                "reference",
-                                "title",
-                                "kind",
-                                "status",
-                                "assignee",
-                                "execution",
-                                "version",
-                                "blockers",
-                                "checkpoint",
-                                "result",
-                                "thread_links",
-                                "url",
-                                "updated_at",
-                            )
-                        }
-                    items.append(task)
-                return self.page(
-                    items,
+                return self.task_list(c, path, query, actor)
+            if parts == ["board"]:
+                fields(
                     query,
-                    path + (":" + actor if is_brief else ""),
-                    limit,
-                    {"project_total": project_total, "instance_id": self.instance_id},
+                    {
+                        "project_id",
+                        "q",
+                        "assignee",
+                        "parent_id",
+                        "priority",
+                        "blocked",
+                        "archived",
+                        "limit",
+                    },
                 )
+                if "project_id" not in query:
+                    invalid("project_id", "Choose a project.")
+                columns = {
+                    status: self.task_list(
+                        c,
+                        "/api/v1/tasks",
+                        {**query, "status": status, "view": "summary"},
+                        actor,
+                    )
+                    for status in STATUSES
+                }
+                epics = self.task_list(
+                    c,
+                    "/api/v1/tasks",
+                    {
+                        "project_id": query["project_id"],
+                        "kind": "epic",
+                        "view": "summary",
+                        "limit": "200",
+                    },
+                    actor,
+                )
+                return {"columns": columns, "epics": epics}
             if len(parts) == 2 and parts[0] == "tasks":
                 fields(query, set())
                 return self.public_task(c, parts[1])

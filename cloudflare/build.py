@@ -1,5 +1,6 @@
 """Stage only application code for the Python Worker bundle."""
 
+import hashlib
 import shutil
 from pathlib import Path
 
@@ -12,4 +13,13 @@ shutil.copytree(
     destination / "tasktrack",
     dirs_exist_ok=True,
     ignore=shutil.ignore_patterns("__pycache__", "static", "vendor", "*.pyc"),
+)
+
+assets = hashlib.sha256()
+for asset in sorted((ROOT / "tasktrack/static").iterdir()):
+    if asset.is_file():
+        assets.update(asset.name.encode())
+        assets.update(asset.read_bytes())
+(destination / "tasktrack/asset_version.py").write_text(
+    'ASSET_VERSION = "' + assets.hexdigest()[:16] + '"\n'
 )

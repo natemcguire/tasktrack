@@ -10,6 +10,17 @@ const esc = (value) =>
         c
       ],
   );
+const bootstrap = JSON.parse(
+  document.querySelector("#tt-bootstrap")?.textContent || "{}",
+);
+const cacheKey = (path) => {
+  const u = new URL(path, "https://local.invalid");
+  u.searchParams.sort();
+  return u.pathname + (u.search ? u.search : "");
+};
+let projectsLoadedAt = 0;
+const boardCache = new Map(),
+  pendingBoards = new Map();
 const states = {
   backlog: "Backlog",
   in_progress: "In progress",
@@ -25,6 +36,7 @@ const state = {
   columns: {},
   mobile: "backlog",
   generation: 0,
+  navigation: 0,
 };
 const actor = $("#actor"),
   session = $("#session");
@@ -61,10 +73,20 @@ function errorText(error) {
     ? Object.values(error.fields).join(" ")
     : error.message;
 }
-async function api(
+async function rawApi(
   path,
   { method = "GET", body, requestId = crypto.randomUUID() } = {},
 ) {
+  const key = cacheKey(path);
+  if (method === "GET" && Object.hasOwn(bootstrap, key)) {
+    const data = bootstrap[key];
+    delete bootstrap[key];
+    return data;
+  }
+  if (method !== "GET") {
+    projectsLoadedAt = 0;
+    for (const key of Object.keys(bootstrap)) delete bootstrap[key];
+  }
   const headers = { "X-Via": "ui" };
   if (account) {
     headers["X-CSRF-Token"] = account.csrf;
@@ -104,6 +126,31 @@ async function api(
   const data = await response.json();
   if (!response.ok) throw { ...data.error, status: response.status };
   return data;
+}
+async function api(path, options = {}) {
+  const method = options.method || "GET",
+    key = cacheKey(path);
+  if (method !== "GET") {
+    boardCache.clear();
+    pendingBoards.clear();
+  }
+  if (method === "GET" && path.startsWith("/board?")) {
+    const cached = boardCache.get(key);
+    if (cached && Date.now() - cached.time < 10000) return cached.data;
+    if (pendingBoards.has(key)) return pendingBoards.get(key);
+    const pending = rawApi(path, options)
+      .then((data) => {
+        if (pendingBoards.get(key) === pending)
+          boardCache.set(key, { data, time: Date.now() });
+        return data;
+      })
+      .finally(() => {
+        if (pendingBoards.get(key) === pending) pendingBoards.delete(key);
+      });
+    pendingBoards.set(key, pending);
+    return pending;
+  }
+  return rawApi(path, options);
 }
 async function allPages(path) {
   let items = [],
@@ -262,7 +309,13 @@ function showForm(
   title,
   html,
   save,
-  { record, recordPath, button = "Save", keepOpen = false } = {},
+  {
+    record,
+    recordPath,
+    button = "Save",
+    keepOpen = false,
+    refresh = true,
+  } = {},
 ) {
   const dialog = $("#editor"),
     form = $("#editor-form");
@@ -295,7 +348,7 @@ function showForm(
       await save(data, version, requestId);
       if (!keepOpen) {
         dialog.close();
-        await route();
+        if (refresh) await route();
       }
     } catch (error) {
       $("#form-error").innerHTML = `<p>${esc(errorText(error))}</p>`;
@@ -328,6 +381,7 @@ $("#close-dialog").onclick = $("#cancel-dialog").onclick = () =>
 async function navigate(path) {
   $(".sidebar").classList.remove("nav-open");
   $("#toggle-projects").setAttribute("aria-expanded", "false");
+  $("#toggle-projects").textContent = "Menu";
   history.pushState({}, "", path);
   state.view = "board";
   state.filters = {};
@@ -346,9 +400,15 @@ window.addEventListener("popstate", () => {
   route();
 });
 async function loadProjects() {
-  state.projects = await allPages("/projects");
+  if (!projectsLoadedAt || Date.now() - projectsLoadedAt > 30000) {
+    state.projects = await allPages("/projects");
+    projectsLoadedAt = Date.now();
+  }
+  renderProjects();
+}
+function renderProjects() {
   $("#projects").innerHTML =
-    `<a class="project-link" href="/" data-nav>All projects</a><a class="project-link" href="/triage" data-nav>TRIAGE</a>` +
+    `<a class="project-link" href="/" data-nav>All projects</a><a class="project-link" href="/triage" data-nav>TRIAGE</a>${account ? '<a class="project-link mobile-account" href="/account">Account</a>' : ""}` +
     state.projects
       .map(
         (p) =>
@@ -361,7 +421,35 @@ $("#toggle-projects").onclick = () => {
   const open = button.getAttribute("aria-expanded") !== "true";
   button.setAttribute("aria-expanded", String(open));
   $(".sidebar").classList.toggle("nav-open", open);
+  button.textContent = open ? "Close" : "Menu";
 };
+function closeMobileMenu() {
+  $(".sidebar").classList.remove("nav-open");
+  $("#toggle-projects").setAttribute("aria-expanded", "false");
+  $("#toggle-projects").textContent = "Menu";
+}
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".sidebar")) closeMobileMenu();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && $(".sidebar").classList.contains("nav-open")) {
+    closeMobileMenu();
+    $("#toggle-projects").focus();
+  }
+});
+document.addEventListener("pointerover", (event) => {
+  const link = event.target.closest("a[data-nav]");
+  if (
+    !link ||
+    !link.pathname.startsWith("/projects/") ||
+    navigator.connection?.saveData
+  )
+    return;
+  const project = state.projects.find(
+    (p) => p.key === link.pathname.split("/")[2],
+  );
+  if (project) api(`/board?project_id=${project.id}&limit=20`).catch(() => {});
+});
 $("#add-project").onclick = () => projectForm();
 function projectForm(project = null) {
   const links = project?.document_links || [];
@@ -621,6 +709,7 @@ function actionForm(task, action) {
   );
 }
 async function moveForm(task, initial = task.status, beforeId = undefined) {
+  if (task._summary) task = await api(`/tasks/${task.id}`);
   showForm(
     `Move ${task.reference}`,
     select("status", "Column", Object.entries(states), initial) +
@@ -685,7 +774,7 @@ function card(task) {
 }
 async function board() {
   const p = state.project;
-  const epics = await allPages(`/tasks?project_id=${p.id}&kind=epic`);
+  const epics = [];
   $("#breadcrumb").textContent = `Projects / ${p.key}`;
   $("#main").innerHTML =
     `<div class="page-head"><div><p class="eyebrow">${esc(p.key)} / WORKSPACE</p><h1>${esc(p.name)}</h1><p class="page-description">Keep the next step clear. Give good work a place to land.</p></div><div class="head-actions"><button class="button quiet" id="settings">Settings</button><button class="button" id="new-epic">New epic</button><button class="button primary" id="new-task">＋ New task</button></div></div><div class="view-tabs" role="tablist" aria-label="Project views">${[
@@ -757,8 +846,17 @@ async function board() {
   }
   $("#clear-filters").onclick = () => {
     state.filters = {};
-    board();
+    for (const id of [
+      "search",
+      "filter-assignee",
+      "filter-epic",
+      "filter-priority",
+      "filter-blocked",
+    ])
+      $("#" + id).value = "";
+    loadBoard();
   };
+  const boardElement = $(".board");
   $("#mobile-columns").onchange = (event) => {
     state.mobile = event.target.value;
     document
@@ -766,7 +864,39 @@ async function board() {
       .forEach((c) =>
         c.classList.toggle("mobile-active", c.dataset.status === state.mobile),
       );
+    const column = boardElement.querySelector(
+      `[data-status="${state.mobile}"]`,
+    );
+    boardElement.scrollTo({
+      left: column.offsetLeft - boardElement.firstElementChild.offsetLeft,
+      behavior: matchMedia("(prefers-reduced-motion:reduce)").matches
+        ? "auto"
+        : "smooth",
+    });
   };
+  let scrollTimer;
+  boardElement.addEventListener(
+    "scroll",
+    () => {
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        const columns = [...boardElement.children];
+        const first = columns[0].offsetLeft;
+        const nearest = columns.reduce((a, b) =>
+          Math.abs(a.offsetLeft - first - boardElement.scrollLeft) <
+          Math.abs(b.offsetLeft - first - boardElement.scrollLeft)
+            ? a
+            : b,
+        );
+        state.mobile = nearest.dataset.status;
+        $("#mobile-columns").value = state.mobile;
+        columns.forEach((c) =>
+          c.classList.toggle("mobile-active", c === nearest),
+        );
+      }, 100);
+    },
+    { passive: true },
+  );
   document
     .querySelectorAll("[data-create]")
     .forEach((b) => (b.onclick = () => taskForm()));
@@ -775,23 +905,39 @@ async function board() {
 async function loadBoard() {
   const generation = ++state.generation;
   try {
-    await Promise.all(
-      Object.keys(states).map(async (status) => {
-        const query = new URLSearchParams({
-          project_id: state.project.id,
-          status,
-          limit: 20,
-          ...Object.fromEntries(
-            Object.entries(state.filters).filter(([, v]) => v !== ""),
-          ),
-          ...(state.view === "archived" ? { archived: "true" } : {}),
-        });
-        const page = await api("/tasks?" + query);
-        if (generation !== state.generation || !$("#cards-" + status)) return;
-        state.columns[status] = { ...page, query };
-        renderColumn(status);
-      }),
+    const projectId = state.project.id;
+    const query = new URLSearchParams({
+      project_id: projectId,
+      limit: 20,
+      ...Object.fromEntries(
+        Object.entries(state.filters).filter(([, v]) => v !== ""),
+      ),
+      ...(state.view === "archived" ? { archived: "true" } : {}),
+    });
+    const result = await api("/board?" + query);
+    state.instanceId = result.columns.backlog.instance_id;
+    if (
+      generation !== state.generation ||
+      state.project?.id !== projectId ||
+      !$("#cards-backlog")
+    )
+      return;
+    for (const status of Object.keys(states)) {
+      const columnQuery = new URLSearchParams(query);
+      columnQuery.set("status", status);
+      columnQuery.set("view", "summary");
+      state.columns[status] = { ...result.columns[status], query: columnQuery };
+      renderColumn(status);
+    }
+    const epicOptions = options(
+      [
+        ["", "All epics"],
+        ...result.epics.items.map((t) => [String(t.id), t.title]),
+      ],
+      state.filters.parent_id || "",
     );
+    if ($("#filter-epic").innerHTML !== epicOptions)
+      $("#filter-epic").innerHTML = epicOptions;
     if (generation === state.generation && $("#board-counts")) {
       const cols = Object.values(state.columns);
       $("#board-counts").textContent =
@@ -882,7 +1028,10 @@ function historyRows(items) {
 }
 async function projectHistory(after = 0, append = false) {
   try {
-    const health = await api("/health");
+    const health = state.instanceId
+      ? { instance_id: state.instanceId }
+      : await api("/health");
+    state.instanceId = health.instance_id;
     const page = await api(
       "/events?" +
         new URLSearchParams({
@@ -917,11 +1066,19 @@ async function projectHistory(after = 0, append = false) {
 function property(label, value) {
   return `<div class="property"><span class="property-label">${label}</span><div class="property-value">${value}</div></div>`;
 }
-async function detail(identifier) {
-  const task = await api(`/tasks/${identifier}`);
+async function detail(identifier, navigation = state.navigation) {
+  const [task] = await Promise.all([
+    api(`/tasks/${identifier}`),
+    loadProjects(),
+  ]);
+  if (navigation !== state.navigation) return;
+  const project =
+    state.projects.find((p) => p.id === task.project_id) ||
+    (await api(`/projects/${task.project_id}`));
+  if (navigation !== state.navigation) return;
   state.task = task;
-  state.project = await api(`/projects/${task.project_id}`);
-  await loadProjects();
+  state.project = project;
+  renderProjects();
   document.title = `${task.reference} · ${task.title} · Tasktrack`;
   $("#breadcrumb").innerHTML =
     `<a href="/projects/${esc(state.project.key)}" data-nav>${esc(state.project.name)}</a> / ${esc(task.reference)}`;
@@ -957,7 +1114,7 @@ async function detail(identifier) {
     restore: "Restore",
   };
   $("#main").innerHTML =
-    `<div class="page-head"><div class="task-heading"><p class="eyebrow">${esc(task.reference)} / ${task.kind.toUpperCase()}${task.archived_at ? " / ARCHIVED" : ""}</p><h1>${esc(task.title)}</h1><p class="page-description">${esc(states[task.status])} · Updated ${esc(date(task.updated_at))}</p></div><div class="head-actions">${!task.archived_at ? '<button class="button" id="edit-task">Edit task</button><button class="button primary" id="move-task">Move</button>' : ""}</div></div>${task.blocked ? `<div class="callout warning"><strong>Blocked</strong><br>${task.blockers.map(esc).join("<br>")}</div>` : ""}<div class="inline-actions history-controls">${actions.map((a) => `<button class="button ${a === "archive" ? "quiet" : ""}" data-action="${a}">${labels[a]}</button>`).join("")}</div><div class="task-layout"><div class="task-content"><section class="task-section"><div class="section-head"><h2>${task.kind === "epic" ? "Epic PRD" : "Description"}</h2></div><div class="markdown">${markdown(task.description_markdown) || '<p class="section-empty">This is a draft. Add a description before starting work.</p>'}</div></section><section class="task-section"><div class="section-head"><h2>Acceptance criteria</h2></div>${task.acceptance_criteria.length ? `<ul class="criteria">${task.acceptance_criteria.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : '<p class="section-empty">What will make this task done? Add criteria in Edit task.</p>'}</section>${task.kind === "epic" ? `<section class="task-section"><div class="section-head"><h2>Child tasks · ${task.progress.done}/${task.progress.total} complete</h2></div><div id="children"></div></section>` : ""}<section class="task-section"><div class="section-head"><h2>Latest checkpoint</h2></div>${task.checkpoint ? `<div class="markdown">${markdown(task.checkpoint.summary)}</div><div class="callout"><strong>Next action</strong><br>${esc(task.checkpoint.next_action)}</div><p class="mono">${esc([task.checkpoint.workspace, task.checkpoint.branch, task.checkpoint.commit].filter(Boolean).join(" · ") || task.checkpoint.not_applicable_reason)}</p>${task.checkpoint.acceptance_remaining.length ? `<h3>Still remaining</h3><ul>${task.checkpoint.acceptance_remaining.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}${evidenceHTML(task.checkpoint.evidence)}` : '<p class="section-empty">Save a checkpoint so the next session knows where to begin.</p>'}</section>${task.result ? `<section class="task-section"><div class="section-head"><h2>Result & evidence</h2></div><div class="markdown">${markdown(task.result.summary)}</div>${evidenceHTML(task.result.evidence)}${task.completion ? `<div class="callout"><strong>Accepted by ${esc(task.completion.actor)}</strong><p>${esc(task.completion.acceptance_note)}</p><small>${esc(date(task.completion.completed_at))} · Retained completion record</small></div>` : ""}</section>` : ""}<section class="task-section"><div class="section-head"><h2>Comments</h2><button class="button" id="add-comment">Add comment</button></div><div id="comments"></div></section><section class="task-section"><div class="section-head"><h2>Attachments</h2><button class="button" id="add-attachment">Attach file</button></div><div id="attachments"></div></section><section class="task-section" id="history-section"><div class="section-head"><h2>History</h2><a href="#history-section" class="small">Permanent record</a></div><div id="task-history"></div></section></div><aside class="task-aside" aria-label="Task properties">${property("Status", esc(states[task.status]) + (task.pickup_needed ? '<div class="pickup">Ready for pickup</div>' : ""))}${property("Assignee", esc(task.assignee || "Unassigned"))}${property("Priority", esc(task.priority))}${property("Execution", task.execution ? `${esc(task.execution.actor)}<br><span class="mono">${esc(task.execution.session)}</span><br><small>Claimed ${esc(date(task.execution.claimed_at))}${task.execution.resumed_at ? `<br>Resumed ${esc(date(task.execution.resumed_at))}` : ""}</small>` : "No execution claim")}${property("Project", `<a href="/projects/${esc(state.project.key)}" data-nav>${esc(state.project.name)}</a><br><button class="button quiet" id="show-prd">Read project brief</button>`)}${task.epic ? property("Epic", `<a href="/tasks/${task.epic.id}" data-nav>${esc(task.epic.title)}</a>`) : ""}${property("Dependencies", task.dependencies.length ? task.dependencies.map((d) => `<a href="/tasks/${d.id}" data-nav>${esc(d.title)}</a><br><small>${esc(states[d.status])}</small>`).join("<br>") : "None")}${property("Conversations", task.thread_links.length ? task.thread_links.map((l) => (l.url ? `<a href="${safeLink(l.url)}" target="_blank" rel="noopener noreferrer">Open conversation${l.primary ? " · primary" : ""}</a>` : `<span>${esc(l.thread_id)}<br><small>URL not configured · ${esc(l.project)}</small></span>`)).join("<br>") : "No linked threads")}${property("Record", `Version ${task.version}<br><small>Created by ${esc(task.created_by)} via ${esc(task.created_via)}<br>${esc(date(task.created_at))}</small>`)}</aside></div>`;
+    `<div class="page-head"><div class="task-heading"><p class="eyebrow">${esc(task.reference)} / ${task.kind.toUpperCase()}${task.archived_at ? " / ARCHIVED" : ""}</p><h1>${esc(task.title)}</h1><p class="page-description">${esc(states[task.status])} · Updated ${esc(date(task.updated_at))}</p></div><div class="head-actions">${!task.archived_at ? '<button class="button" id="edit-task">Edit task</button><button class="button primary" id="move-task">Move</button>' : ""}</div></div>${task.blocked ? `<div class="callout warning"><strong>Blocked</strong><br>${task.blockers.map(esc).join("<br>")}</div>` : ""}<div class="inline-actions history-controls">${actions.map((a) => `<button class="button ${a === "archive" ? "quiet" : ""}" data-action="${a}">${labels[a]}</button>`).join("")}</div><div class="task-layout"><div class="task-content"><section class="task-section"><div class="section-head"><h2>${task.kind === "epic" ? "Epic PRD" : "Description"}</h2></div><div class="markdown">${markdown(task.description_markdown) || '<p class="section-empty">This is a draft. Add a description before starting work.</p>'}</div></section><section class="task-section"><div class="section-head"><h2>Acceptance criteria</h2></div>${task.acceptance_criteria.length ? `<ul class="criteria">${task.acceptance_criteria.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : '<p class="section-empty">What will make this task done? Add criteria in Edit task.</p>'}</section>${task.kind === "epic" ? `<section class="task-section"><div class="section-head"><h2>Child tasks · ${task.progress.done}/${task.progress.total} complete</h2></div><div id="children"></div></section>` : ""}<section class="task-section"><div class="section-head"><h2>Latest checkpoint</h2></div>${task.checkpoint ? `<div class="markdown">${markdown(task.checkpoint.summary)}</div><div class="callout"><strong>Next action</strong><br>${esc(task.checkpoint.next_action)}</div><p class="mono">${esc([task.checkpoint.workspace, task.checkpoint.branch, task.checkpoint.commit].filter(Boolean).join(" · ") || task.checkpoint.not_applicable_reason)}</p>${task.checkpoint.acceptance_remaining.length ? `<h3>Still remaining</h3><ul>${task.checkpoint.acceptance_remaining.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}${evidenceHTML(task.checkpoint.evidence)}` : '<p class="section-empty">Save a checkpoint so the next session knows where to begin.</p>'}</section>${task.result ? `<section class="task-section"><div class="section-head"><h2>Result & evidence</h2></div><div class="markdown">${markdown(task.result.summary)}</div>${evidenceHTML(task.result.evidence)}${task.completion ? `<div class="callout"><strong>Accepted by ${esc(task.completion.actor)}</strong><p>${esc(task.completion.acceptance_note)}</p><small>${esc(date(task.completion.completed_at))} · Retained completion record</small></div>` : ""}</section>` : ""}<section class="task-section" id="comments-section"><div class="section-head"><h2>Comments</h2><button class="button" id="add-comment">Add comment</button></div><div id="comments"></div></section><section class="task-section"><div class="section-head"><h2>Attachments</h2><button class="button" id="add-attachment">Attach file</button></div><div id="attachments"></div></section><section class="task-section" id="history-section"><div class="section-head"><h2>History</h2><a href="#history-section" class="small">Permanent record</a></div><div id="task-history"></div></section></div><aside class="task-aside" aria-label="Task properties">${property("Status", esc(states[task.status]) + (task.pickup_needed ? '<div class="pickup">Ready for pickup</div>' : ""))}${property("Assignee", esc(task.assignee || "Unassigned"))}${property("Priority", esc(task.priority))}${property("Execution", task.execution ? `${esc(task.execution.actor)}<br><span class="mono">${esc(task.execution.session)}</span><br><small>Claimed ${esc(date(task.execution.claimed_at))}${task.execution.resumed_at ? `<br>Resumed ${esc(date(task.execution.resumed_at))}` : ""}</small>` : "No execution claim")}${property("Project", `<a href="/projects/${esc(state.project.key)}" data-nav>${esc(state.project.name)}</a><br><button class="button quiet" id="show-prd">Read project brief</button>`)}${task.epic ? property("Epic", `<a href="/tasks/${task.epic.id}" data-nav>${esc(task.epic.title)}</a>`) : ""}${property("Dependencies", task.dependencies.length ? task.dependencies.map((d) => `<a href="/tasks/${d.id}" data-nav>${esc(d.title)}</a><br><small>${esc(states[d.status])}</small>`).join("<br>") : "None")}${property("Conversations", task.thread_links.length ? task.thread_links.map((l) => (l.url ? `<a href="${safeLink(l.url)}" target="_blank" rel="noopener noreferrer">Open conversation${l.primary ? " · primary" : ""}</a>` : `<span>${esc(l.thread_id)}<br><small>URL not configured · ${esc(l.project)}</small></span>`)).join("<br>") : "No linked threads")}${property("Record", `Version ${task.version}<br><small>Created by ${esc(task.created_by)} via ${esc(task.created_via)}<br>${esc(date(task.created_at))}</small>`)}</aside></div>`;
   if ($("#edit-task"))
     $("#edit-task").onclick = () => taskForm(task, task.kind);
   if (account) {
@@ -986,26 +1143,13 @@ async function detail(identifier) {
     state.view = "brief";
     await board();
   };
-  $("#add-comment").onclick = () =>
-    showForm(
-      "Add a durable note",
-      field(
-        "body",
-        "Comment",
-        "",
-        "textarea",
-        "Save a decision, context, or next action. Comments are append-only.",
-      ),
-      async (f, _, requestId) => {
-        await api(`/tasks/${task.id}/comments`, {
-          method: "POST",
-          body: { body: f.get("body") },
-          requestId,
-        });
-        toast("Comment saved.");
-      },
-      { button: "Add comment" },
-    );
+  state.commentItems = [];
+  $("#add-comment").onclick = () => commentForm(task);
+  const jump = document.createElement("a");
+  jump.className = "button";
+  jump.href = "#comments-section";
+  jump.textContent = "Comments";
+  $(".head-actions").append(jump);
   $("#add-attachment").onclick = () =>
     showForm(
       "Attach a file",
@@ -1022,12 +1166,101 @@ async function detail(identifier) {
       },
       { button: "Upload file" },
     );
+  state.historyObserver?.disconnect();
+  state.historyObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        state.historyObserver.disconnect();
+        loadTaskList("history").catch((error) => toast(errorText(error)));
+      }
+    },
+    { rootMargin: "200px" },
+  );
+  state.historyObserver.observe($("#history-section"));
   await Promise.all([
     loadTaskList("comments"),
     loadTaskList("attachments"),
-    loadTaskList("history"),
     ...(task.kind === "epic" ? [loadChildren()] : []),
   ]);
+}
+function commentForm(task, parent = null) {
+  showForm(
+    parent ? "Reply to " + parent.actor : "Add a durable note",
+    (parent
+      ? `<blockquote class="reply-context">${esc(parent.body.slice(0, 240))}</blockquote>`
+      : "") +
+      field(
+        "body",
+        "Comment",
+        "",
+        "textarea",
+        "Markdown supported. Comments stay in the task history.",
+      ),
+    async (form, _, requestId) => {
+      const comment = await api(`/tasks/${task.id}/comments`, {
+        method: "POST",
+        body: {
+          body: form.get("body"),
+          ...(parent ? { parent_id: parent.id } : {}),
+        },
+        requestId,
+      });
+      if (state.task?.id === task.id) {
+        state.commentItems = [
+          ...(state.commentItems || []).filter((c) => c.id !== comment.id),
+          comment,
+        ];
+        renderComments();
+        document
+          .querySelector(`#comment-${comment.id}`)
+          ?.scrollIntoView({ block: "nearest" });
+        loadTaskList("history").catch((e) => toast(errorText(e)));
+      }
+      toast(parent ? "Reply posted." : "Comment saved.");
+    },
+    { button: parent ? "Post reply" : "Add comment", refresh: false },
+  );
+  $("#editor textarea").focus();
+}
+function renderComments() {
+  const target = $("#comments");
+  if (!target) return;
+  const more = target.querySelector(".load-more");
+  const items = [
+    ...new Map((state.commentItems || []).map((c) => [c.id, c])).values(),
+  ].sort((a, b) => a.id - b.id);
+  const byId = new Map(items.map((c) => [c.id, c])),
+    groups = new Map();
+  for (const comment of items) {
+    let root = comment;
+    const visited = new Set();
+    while (
+      root.parent_id &&
+      byId.has(root.parent_id) &&
+      !visited.has(root.id)
+    ) {
+      visited.add(root.id);
+      root = byId.get(root.parent_id);
+    }
+    if (!groups.has(root.id)) groups.set(root.id, []);
+    groups.get(root.id).push(comment);
+  }
+  target.innerHTML =
+    [...groups.values()]
+      .map(
+        (thread) =>
+          `<div class="comment-thread">${thread.map((c) => `<article id="comment-${c.id}" class="comment ${c.parent_id ? "comment-reply" : ""}"><div class="comment-meta"><strong>${esc(c.actor)}</strong> · ${esc(date(c.created_at))} · ${esc(c.via)} <a href="#comment-${c.id}">#${c.id}</a>${c.parent_id ? ` · <a href="#comment-${c.parent_id}">Reply to #${c.parent_id}</a>` : ""}</div><div class="markdown">${markdown(c.body)}</div><button class="button quiet" data-reply="${c.id}">Reply</button></article>`).join("")}</div>`,
+      )
+      .join("") ||
+    '<p class="section-empty">No comments yet. Add your feedback.</p>';
+  if (more) target.append(more);
+  target
+    .querySelectorAll("[data-reply]")
+    .forEach(
+      (button) =>
+        (button.onclick = () =>
+          commentForm(state.task, byId.get(Number(button.dataset.reply)))),
+    );
 }
 async function loadTaskList(type, cursor = null, append = false) {
   const id = state.task.id,
@@ -1055,10 +1288,14 @@ async function loadTaskList(type, cursor = null, append = false) {
                 `<div class="file-row"><a href="${esc(a.download_url)}" download>${esc(a.filename)}</a><small>${(a.size / 1024).toFixed(1)} KiB · ${esc(a.actor)}${a.comment_id ? ` · Comment #${a.comment_id}` : ""}</small></div>`,
             )
             .join("");
-  target.insertAdjacentHTML(
-    "beforeend",
-    html || (!append ? `<p class="section-empty">No ${type} yet.</p>` : ""),
-  );
+  if (type === "comments") {
+    state.commentItems = [...(state.commentItems || []), ...page.items];
+    renderComments();
+  } else
+    target.insertAdjacentHTML(
+      "beforeend",
+      html || (!append ? `<p class="section-empty">No ${type} yet.</p>` : ""),
+    );
   if (page.has_more) {
     target.insertAdjacentHTML(
       "beforeend",
@@ -1258,29 +1495,55 @@ async function projectIndex() {
     `<div class="page-head"><div><h1>Projects</h1><p class="page-description">Your team's work, in one place.</p></div><button class="button primary" id="index-create">New project</button></div><a class="triage-entry" href="/triage" data-nav><strong>TRIAGE</strong><span>Recent work →</span></a><div class="project-grid">${state.projects.map((p) => `<a class="project-tile" href="/projects/${esc(p.key)}" data-nav><span class="eyebrow">${esc(p.key)}</span><h2>${esc(p.name)}</h2><span class="muted">Open project →</span></a>`).join("") || "<p>No projects yet. Create one to get started.</p>"}</div>`;
   $("#index-create").onclick = () => projectForm();
 }
-async function triage() {
+async function triage(cursor = null, append = false) {
   state.project = null;
   document.title = "Triage · Tasktrack";
   $("#breadcrumb").textContent = "TRIAGE";
-  const items = await allPages("/tasks");
-  items.sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id - a.id);
+  const navigation = state.navigation;
+  const page = await api(
+    "/tasks?" +
+      new URLSearchParams({
+        view: "summary",
+        sort: "recent",
+        limit: 30,
+        ...(cursor ? { cursor } : {}),
+      }),
+  );
+  if (navigation !== state.navigation) return;
+  const items = append ? [...state.triageItems, ...page.items] : page.items;
+  state.triageItems = items;
   $("#main").innerHTML =
     `<div class="page-head"><div><h1>TRIAGE</h1><p class="page-description">Recent work, newest first.</p></div><a class="button" href="/" data-nav>All projects</a></div><div class="triage-list">${items.map((t) => `<a class="triage-item" href="/tasks/${t.id}" data-nav><span class="eyebrow">${esc(t.reference)} · ${esc(states[t.status])}</span><strong>${esc(t.title)}</strong><small>${esc(date(t.updated_at))}</small></a>`).join("") || "<p>No recent work yet.</p>"}</div>`;
+  if (page.has_more) {
+    const more = document.createElement("button");
+    more.className = "button";
+    more.textContent = "Load more recent work";
+    more.onclick = () =>
+      triage(page.next_cursor, true).catch((e) => toast(errorText(e)));
+    $("#main").append(more);
+  }
 }
 async function route() {
+  const navigation = ++state.navigation;
   try {
     const path = decodeURIComponent(location.pathname);
     state.generation++;
     if (path.startsWith("/tasks/")) {
-      await detail(path.split("/")[2]);
+      await detail(path.split("/")[2], navigation);
       return;
     }
-    if (path.startsWith("/projects/"))
-      state.project = await api("/projects/by-key/" + path.split("/")[2]);
     await loadProjects();
+    if (navigation !== state.navigation) return;
+    if (path.startsWith("/projects/")) {
+      const key = path.split("/")[2];
+      state.project =
+        state.projects.find((p) => p.key === key || p.aliases?.includes(key)) ||
+        (await api("/projects/by-key/" + key));
+    }
+    if (navigation !== state.navigation) return;
     if (path === "/" || path === "/triage") {
       await (path === "/" ? projectIndex() : triage());
-      await loadProjects();
+      renderProjects();
       return;
     }
     if (!state.projects.length) {
@@ -1292,9 +1555,10 @@ async function route() {
     if (!state.project) state.project = state.projects[0];
     history.replaceState({}, "", `/projects/${state.project.key}`);
     document.title = `${state.project.name} · Tasktrack`;
-    await loadProjects();
+    renderProjects();
     await board();
   } catch (error) {
+    if (navigation !== state.navigation) return;
     $("#main").innerHTML =
       `<section class="empty-workspace"><h1>We couldn’t open this view.</h1><p class="error-box">${esc(errorText(error))}</p><a class="button" href="/">Back to projects</a> <button class="button primary" id="retry">Try again</button></section>`;
     $("#retry").onclick = route;

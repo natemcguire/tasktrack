@@ -11,7 +11,7 @@ from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def now():
@@ -53,6 +53,10 @@ MIGRATIONS = {
         "CREATE INDEX tasks_owner ON tasks(assignee,status)",
         "CREATE INDEX task_events ON events(entity_type,entity_id,sequence)",
         "CREATE INDEX project_events ON events(project_id,sequence)",
+    ],
+    3: [
+        "ALTER TABLE comments ADD COLUMN parent_id INTEGER REFERENCES comments(id)",
+        "CREATE INDEX comments_thread ON comments(task_id,parent_id,id)",
     ],
 }
 

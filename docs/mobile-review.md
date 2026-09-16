@@ -3,10 +3,13 @@
 ## Changes
 
 - A compact header replaces the permanently expanded project navigation. The
-  Projects button opens a scrollable list and closes it after navigation.
+  Menu button opens a scrollable list of projects, TRIAGE and Account and closes it after navigation. The menu overlays the page and supports outside
+  tap and Escape dismissal.
 - The home page lists projects and provides one clear TRIAGE entry.
 - Task descriptions precede the detailed property panel. Secondary task actions
   sit under More actions on small screens; Edit and Move remain visible.
+- Board columns scroll sideways, with a partial next-column cue and distinct
+  status backgrounds. The column selector also scrolls to the chosen status.
 - Inputs use 16px text and controls have a 44px minimum height. Dialog actions
   stay visible while editing, with safe-area padding.
 - Preview screens have a sticky selector. Forms stack vertically, tables retain

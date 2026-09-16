@@ -119,6 +119,63 @@ class Fixture(unittest.TestCase):
 
 
 class DomainTests(Fixture):
+    def test_threaded_comments_are_task_scoped_idempotent_and_survive_restart(self):
+        task, other = self.task(), self.task(title="Another task")
+        root = self.write(
+            f"tasks/{task['id']}/comments", {"body": "Please simplify this."}
+        )
+        reply_body = {"body": "Draft updated.", "parent_id": root["id"]}
+        reply = self.write(
+            f"tasks/{task['id']}/comments",
+            reply_body,
+            actor="agent:review",
+            key="reply-1",
+        )
+        self.assertEqual(
+            reply,
+            self.write(
+                f"tasks/{task['id']}/comments",
+                reply_body,
+                actor="agent:review",
+                key="reply-1",
+            ),
+        )
+        self.assertEqual(reply["actor"], "agent:review")
+        self.fails(422, lambda: self.write(f"tasks/{other['id']}/comments", reply_body))
+        self.fails(
+            422,
+            lambda: self.write(
+                f"tasks/{task['id']}/comments",
+                {"body": "Bad parent", "parent_id": 999999},
+            ),
+        )
+        nested = self.write(
+            f"tasks/{task['id']}/comments", {"body": "Thanks", "parent_id": reply["id"]}
+        )
+        restarted = Service(Store(self.directory))
+        comments = restarted.read(f"/api/v1/tasks/{task['id']}/comments")["items"]
+        self.assertEqual(
+            [c["parent_id"] for c in comments], [None, root["id"], reply["id"]]
+        )
+        self.assertEqual(comments[-1]["id"], nested["id"])
+
+    def test_compact_board_keeps_card_fields_without_prd_payload(self):
+        task = self.task(description_markdown="Long specification " * 5000)
+        full = self.s.read("/api/v1/tasks", {"project_id": str(self.project["id"])})
+        board = self.s.read(
+            "/api/v1/board", {"project_id": str(self.project["id"]), "limit": "20"}
+        )
+        card = board["columns"]["backlog"]["items"][0]
+        self.assertEqual(card["id"], task["id"])
+        self.assertNotIn("description_markdown", card)
+        self.assertNotIn("thread_links", card)
+        self.assertLess(len(json.dumps(board)), len(json.dumps(full)) // 10)
+        filtered = self.s.read(
+            "/api/v1/board",
+            {"project_id": str(self.project["id"]), "q": "specification"},
+        )
+        self.assertEqual(filtered["columns"]["backlog"]["total"], 1)
+
     def test_structural_quality_gate_and_protected_fields(self):
         draft = self.task(
             description_markdown="Very long prose. " * 100, acceptance_criteria=[]

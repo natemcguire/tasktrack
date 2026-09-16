@@ -4,6 +4,9 @@ Publish HTML design documents to a dedicated preview host on the same Cloudflare
 Worker. Documents live in private R2 storage, not the public static asset bundle.
 Set `PREVIEW_URL` to the HTTPS preview origin and add its custom-domain route to
 your deployment configuration. Keep tenant deployment configuration outside Git.
+The deployment script selects an ignored `wrangler.private.json` in the project
+root when present; `TASKTRACK_CONFIG` can select another root-level config.
+Keeping it in that directory lets Wrangler include the Python SDK.
 
 Opening a preview uses the existing Tasktrack sign-in. Both hosts use separate
 HttpOnly, Secure, host-only cookies. A browser-bound, single-use 60-second grant

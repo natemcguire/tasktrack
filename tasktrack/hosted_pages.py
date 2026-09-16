@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timezone
 from html import escape as esc
 
+from .asset_version import ASSET_VERSION
+
 STATUS = {
     "backlog": "Backlog",
     "in_progress": "In progress",
@@ -13,12 +15,25 @@ STATUS = {
 
 
 def page(title, content, metadata="", script=False):
-    return f"""<!doctype html><html lang="en"><head>
+    result = f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(title)} · Tasktrack</title><meta name="robots" content="noindex,nofollow">
 <link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/hosted.css">
 {metadata}{'<script src="/hosted.js" defer></script>' if script else ""}
 </head><body class="hosted-page"><header class="hosted-nav"><a class="brand" href="/"><span class="brand-mark">t.</span>tasktrack</a><span>A place for the work.</span></header>{content}</body></html>"""
+
+    for asset in (
+        "style.css",
+        "hosted.css",
+        "hosted.js",
+        "auth.js",
+        "preview.js",
+        "favicon.svg",
+    ):
+        result = result.replace(
+            '"/' + asset + '"', '"/' + asset + "?v=" + ASSET_VERSION + '"'
+        )
+    return result
 
 
 def auth_page(mode="login", next_path="/", message="", secret="", challenge=""):

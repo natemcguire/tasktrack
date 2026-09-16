@@ -1,5 +1,6 @@
 """Cloudflare-hosted Tasktrack: authenticated routes and isolated workspaces."""
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -13,6 +14,7 @@ from workers import DurableObject, Request, Response, WorkerEntrypoint
 
 from tasktrack import previews
 from tasktrack.accounts import Accounts, digest, safe_next, timestamp, token
+from tasktrack.asset_version import ASSET_VERSION
 from tasktrack.cloud_store import CloudStore
 from tasktrack.db import Error, encode
 from tasktrack.hosted_pages import (
@@ -260,7 +262,7 @@ class Default(WorkerEntrypoint):
         headers = dict(response.headers.items())
         headers.update(
             {
-                "Cache-Control": "no-store",
+                "Cache-Control": response.headers.get("Cache-Control", "no-store"),
                 "X-Content-Type-Options": "nosniff",
                 "Referrer-Policy": "strict-origin",
                 "X-Robots-Tag": "noindex, nofollow",
@@ -297,7 +299,18 @@ class Default(WorkerEntrypoint):
             }
             and method == "GET"
         ):
-            return await self.env.ASSETS.fetch(request)
+            asset = await self.env.ASSETS.fetch(request)
+            headers = dict(asset.headers.items())
+            headers["Cache-Control"] = (
+                "public, max-age=31536000, immutable"
+                if query.get("v") == ASSET_VERSION
+                else "public, max-age=0, must-revalidate"
+            )
+            return Response(
+                None if not asset.js_object.body else asset.js_object.body,
+                status=asset.status,
+                headers=headers,
+            )
         if path == "/healthz" and method == "GET":
             await accounts.one("SELECT 1 FROM users LIMIT 1")
             return Response.json({"status": "ok", "storage": "cloudflare"})
@@ -536,6 +549,94 @@ class Default(WorkerEntrypoint):
                     "workspace_name",
                 )
             }
+            initial = {}
+
+            async def preload(route, query=None):
+                _, value = await self.task_call(
+                    identity, "/api/v1" + route, query=query
+                )
+                key = route + (
+                    "?"
+                    + "&".join(
+                        k + "=" + quote(str(v), safe="")
+                        for k, v in sorted(query.items())
+                    )
+                    if query
+                    else ""
+                )
+                initial[key] = value
+                return value
+
+            tasks_path = path.startswith("/tasks/")
+            if tasks_path:
+                projects, task = await asyncio.gather(
+                    preload("/projects", {"limit": "200"}), preload(path)
+                )
+                first_view = (
+                    '<div class="page-head"><div><p class="eyebrow">'
+                    + escape(task["reference"])
+                    + "</p><h1>"
+                    + escape(task["title"])
+                    + "</h1></div></div>"
+                )
+            else:
+                projects = await preload("/projects", {"limit": "200"})
+                first_view = (
+                    '<div class="page-head"><h1>Projects</h1></div><a class="triage-entry" href="/triage">TRIAGE · Recent work →</a><div class="project-grid">'
+                    + "".join(
+                        '<a class="project-tile" href="/projects/'
+                        + escape(p["key"])
+                        + '"><h2>'
+                        + escape(p["name"])
+                        + "</h2></a>"
+                        for p in projects["items"]
+                    )
+                    + "</div>"
+                )
+                if path.startswith("/projects/"):
+                    project = next(
+                        (
+                            p
+                            for p in projects["items"]
+                            if path.split("/")[2] in [p["key"], *p["aliases"]]
+                        ),
+                        None,
+                    )
+                    if not project:
+                        project = await preload(
+                            "/projects/by-key/" + path.split("/")[2]
+                        )
+                    pid = str(project["id"])
+                    await preload("/board", {"project_id": pid, "limit": "20"})
+                    first_view = (
+                        '<div class="page-head"><h1>'
+                        + escape(project["name"])
+                        + "</h1></div>"
+                    )
+                elif path == "/triage":
+                    await preload(
+                        "/tasks", {"view": "summary", "sort": "recent", "limit": "30"}
+                    )
+                    first_view = '<div class="page-head"><h1>TRIAGE</h1></div>'
+            content = content.replace(
+                '<div id="initial-view"><h1>Projects</h1></div>', first_view
+            )
+            initial_json = (
+                encode(initial)
+                .replace("<", "\\u003c")
+                .replace(">", "\\u003e")
+                .replace("&", "\\u0026")
+            )
+            content = content.replace(
+                "</head>",
+                '<script id="tt-bootstrap" type="application/json">'
+                + initial_json
+                + "</script></head>",
+            )
+            for asset in ("app.js", "style.css", "hosted.css", "favicon.svg"):
+                content = content.replace(
+                    '"/' + asset + '"', '"/' + asset + "?v=" + ASSET_VERSION + '"'
+                )
             content = content.replace(
                 "<head>",
                 '<head><meta name="tt-context" content="'
@@ -543,6 +644,10 @@ class Default(WorkerEntrypoint):
                 + '"><link rel="stylesheet" href="/hosted.css"><link rel="icon" href="/favicon.svg">',
                 1,
             )
+            for asset in ("hosted.css", "favicon.svg"):
+                content = content.replace(
+                    '"/' + asset + '"', '"/' + asset + "?v=" + ASSET_VERSION + '"'
+                )
             return html(
                 content.replace("Local work, lasting context", "A place for the work")
             )

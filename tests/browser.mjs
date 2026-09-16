@@ -353,7 +353,7 @@ try {
   await openTask(second.id);
   await expect(page.locator(".comment .markdown")).toContainText("<script>");
   expect(await page.evaluate(() => window.tasktrackXSS)).toBeUndefined();
-  expect(await page.locator(".comment a").getAttribute("href")).toBe("#");
+  expect(await page.locator(".comment .markdown a").getAttribute("href")).toBe("#");
   await openTask(task.id);
   const upload = path.join(temp, "review-evidence.txt");
   const bytes = Buffer.from("Review evidence\nExact bytes: \u0000\u00ff\n");

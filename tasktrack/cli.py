@@ -100,6 +100,7 @@ def parser():
         p.add_argument("--" + flag)
     p = sub(task, "comment")
     p.add_argument("id")
+    p.add_argument("--reply-to", type=int)
     group = p.add_mutually_exclusive_group(required=True)
     group.add_argument("--body")
     group.add_argument("--file")
@@ -247,7 +248,10 @@ def execute(args):
     if operation == "comment":
         return write(
             "tasks/" + args.id + "/comments",
-            {"body": Path(args.file).read_text() if args.file else args.body},
+            {
+                "body": Path(args.file).read_text() if args.file else args.body,
+                **({"parent_id": args.reply_to} if args.reply_to is not None else {}),
+            },
         )
     if operation == "attach":
         file = Path(args.file)
