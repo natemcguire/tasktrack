@@ -20,7 +20,7 @@ def page(title, content, metadata="", script=False):
 <title>{esc(title)} · Tasktrack</title><meta name="robots" content="noindex,nofollow">
 <link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/hosted.css">
 {metadata}{'<script src="/hosted.js" defer></script>' if script else ""}
-</head><body class="hosted-page"><header class="hosted-nav"><a class="brand" href="/"><span class="brand-mark">t.</span>tasktrack</a><span>A place for the work.</span></header>{content}</body></html>"""
+</head><body class="hosted-page"><header class="hosted-nav"><a class="brand" href="/"><span class="brand-mark">t.</span>tasktrack</a></header>{content}</body></html>"""
 
     for asset in (
         "style.css",
@@ -47,7 +47,7 @@ def auth_page(mode="login", next_path="/", message="", secret="", challenge=""):
         )
         form = f'''<form id="code-form" method="post" action="/auth/code"><input type="hidden" name="challenge" value="{esc(challenge)}"><label for="code">Sign-in code</label><input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{{6}}" maxlength="6" required autofocus><button class="button primary">Sign in</button><p id="code-error" role="alert"></p></form><p class="small muted">Expires in 15 minutes. You can also use the link in the email.</p><a href="/login?next={esc(next_path)}">Send a new code</a>'''
     else:
-        title = "Welcome to Tasktrack." if mode == "signup" else "Welcome back."
+        title = "Sign in."
         intro = "Enter your email to sign in."
         form = f'''<form method="post" action="/auth/link"><label for="email">Email address</label><input id="email" name="email" type="email" required autocomplete="email" placeholder="you@example.com" maxlength="254" autofocus><input type="hidden" name="next" value="{esc(next_path)}"><button class="button primary" type="submit">Email me a code</button></form><p class="small muted">Your first sign-in creates a private workspace.</p>'''
     return page(

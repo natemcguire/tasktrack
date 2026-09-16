@@ -777,7 +777,7 @@ async function board() {
   const epics = [];
   $("#breadcrumb").textContent = `Projects / ${p.key}`;
   $("#main").innerHTML =
-    `<div class="page-head"><div><p class="eyebrow">${esc(p.key)} / WORKSPACE</p><h1>${esc(p.name)}</h1><p class="page-description">Keep the next step clear. Give good work a place to land.</p></div><div class="head-actions"><button class="button quiet" id="settings">Settings</button><button class="button" id="new-epic">New epic</button><button class="button primary" id="new-task">＋ New task</button></div></div><div class="view-tabs" role="tablist" aria-label="Project views">${[
+    `<div class="page-head"><div><p class="eyebrow">${esc(p.key)} / WORKSPACE</p><h1>${esc(p.name)}</h1></div><div class="head-actions"><button class="button quiet" id="settings">Settings</button><button class="button" id="new-epic">New epic</button><button class="button primary" id="new-task">＋ New task</button></div></div><div class="view-tabs" role="tablist" aria-label="Project views">${[
       ["board", "Board"],
       ["brief", "Project brief"],
       ["history", "Activity"],
@@ -826,7 +826,7 @@ async function board() {
       )
       .join(
         "",
-      )}</div><div class="board-foot"><span id="board-counts">Loading tasks…</span><span>Drag to move · Use a card’s ⋯ menu with a keyboard</span></div>`;
+      )}</div><div class="board-foot"><span id="board-counts">Loading tasks…</span></div>`;
   let timer;
   for (const [id, key] of [
     ["search", "q"],
@@ -954,7 +954,7 @@ function renderColumn(status) {
   $("#count-" + status).textContent = column.total;
   $("#cards-" + status).innerHTML = column.items.length
     ? column.items.map(card).join("")
-    : `<div class="empty-column">${state.view === "archived" ? "No archived work" : Object.values(state.filters).some(Boolean) ? "No matching tasks" : "Room for what’s next"}</div>`;
+    : `<div class="empty-column">${state.view === "archived" ? "No archived work" : Object.values(state.filters).some(Boolean) ? "No matching tasks" : "No tasks"}</div>`;
   $("#more-" + status).innerHTML = column.has_more
     ? `<button class="button load-more" id="load-${status}">Load more · ${column.items.length} of ${column.total}</button>`
     : "";
@@ -1185,7 +1185,7 @@ async function detail(identifier, navigation = state.navigation) {
 }
 function commentForm(task, parent = null) {
   showForm(
-    parent ? "Reply to " + parent.actor : "Add a durable note",
+    parent ? "Reply to " + parent.actor : "Add comment",
     (parent
       ? `<blockquote class="reply-context">${esc(parent.body.slice(0, 240))}</blockquote>`
       : "") +
@@ -1492,7 +1492,7 @@ async function projectIndex() {
   document.title = "Projects · Tasktrack";
   $("#breadcrumb").textContent = "Projects";
   $("#main").innerHTML =
-    `<div class="page-head"><div><h1>Projects</h1><p class="page-description">Your team's work, in one place.</p></div><button class="button primary" id="index-create">New project</button></div><a class="triage-entry" href="/triage" data-nav><strong>TRIAGE</strong><span>Recent work →</span></a><div class="project-grid">${state.projects.map((p) => `<a class="project-tile" href="/projects/${esc(p.key)}" data-nav><span class="eyebrow">${esc(p.key)}</span><h2>${esc(p.name)}</h2><span class="muted">Open project →</span></a>`).join("") || "<p>No projects yet. Create one to get started.</p>"}</div>`;
+    `<div class="page-head"><div><h1>Projects</h1></div><button class="button primary" id="index-create">New project</button></div><a class="triage-entry" href="/triage" data-nav><strong>TRIAGE</strong><span>Recent work →</span></a><div class="project-grid">${state.projects.map((p) => `<a class="project-tile" href="/projects/${esc(p.key)}" data-nav><span class="eyebrow">${esc(p.key)}</span><h2>${esc(p.name)}</h2><span class="muted">Open project →</span></a>`).join("") || "<p>No projects yet. Create one to get started.</p>"}</div>`;
   $("#index-create").onclick = () => projectForm();
 }
 async function triage(cursor = null, append = false) {
@@ -1548,7 +1548,7 @@ async function route() {
     }
     if (!state.projects.length) {
       $("#main").innerHTML =
-        '<section class="empty-workspace"><span class="brand-mark" aria-hidden="true">t.</span><p class="eyebrow">A CLEAR PLACE TO START</p><h1>Good work starts with context.</h1><p>Bring projects, requirements, and the next action together. Create your first project to make room for the work.</p><button class="button primary" id="first-project">Create your first project</button></section>';
+        '<section class="empty-workspace"><span class="brand-mark" aria-hidden="true">t.</span><h1>No projects yet.</h1><button class="button primary" id="first-project">Create your first project</button></section>';
       $("#first-project").onclick = () => projectForm();
       return;
     }

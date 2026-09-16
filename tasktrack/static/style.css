@@ -1539,3 +1539,56 @@ dialog::backdrop {
     min-width: 44px;
   }
 }
+
+@media (max-width: 700px) {
+  .column {
+    padding: 10px;
+  }
+  .column-head {
+    margin-bottom: 8px;
+  }
+  .cards {
+    gap: 8px;
+  }
+  .card {
+    padding: 10px 12px;
+    border-radius: 8px;
+  }
+  .card-top {
+    margin-bottom: 6px;
+  }
+  .card-title {
+    font-size: 15px;
+    line-height: 1.35;
+    letter-spacing: -0.1px;
+  }
+  .card .epic-tag {
+    margin-top: 6px;
+    font-size: 10px;
+    padding: 1px 5px;
+  }
+  .card .blocked-tag {
+    margin-top: 6px;
+    padding: 2px 5px;
+  }
+  .card-foot {
+    margin-top: 2px;
+    font-size: 11px;
+  }
+  .card .avatar {
+    width: 18px;
+    height: 18px;
+    font-size: 9px;
+  }
+  .card .pickup {
+    margin-top: 3px;
+    padding-top: 4px;
+    font-size: 10px;
+  }
+  .column-title {
+    font-size: 14px;
+  }
+  .page-head {
+    margin-bottom: 12px;
+  }
+}
