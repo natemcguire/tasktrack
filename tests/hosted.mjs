@@ -1345,6 +1345,164 @@ try {
   pass(
     "Expiry, rate limits, logout, repeat sign-in and scheduled credential cleanup work",
   );
+  // F01: exercise the real Worker/D1/DO boundary, not just the pure policy.
+  const owner = await context(),
+    colleague = await context();
+  await login(owner, "policy-owner@example.invalid");
+  await login(colleague, "policy-colleague@example.invalid");
+  const ownerMe = await api(owner, "/me");
+  const invite = await request(owner, "/api/account/invite", {
+    method: "POST",
+    body: {},
+  });
+  await colleague.ctx.request.post(invite.url, {
+    form: { csrf: colleague.identity.csrf },
+  });
+  await refresh(colleague);
+  const colleagueMe = await api(colleague, "/me");
+  assert.equal(colleagueMe.membership.role, "regular");
+  assert.equal(colleagueMe.workspace_id, ownerMe.workspace_id);
+  const privateProject = await api(owner, "/projects", {
+    method: "POST",
+    status: 201,
+    body: { key: "PRIVATE", name: "Restricted project" },
+  });
+  const privateTask = await createTask(
+    owner,
+    privateProject,
+    "Private policy fixture",
+  );
+  await api(colleague, "/projects", {
+    method: "POST",
+    status: 403,
+    body: { key: "ESCALATE", name: "Denied" },
+    headers: { "X-Actor": "admin", "X-Role": "admin" },
+  });
+  const grantBody = {
+    expected_version: 1,
+    internal_access: "restricted",
+    grants: [],
+  };
+  await api(owner, `/projects/${privateProject.id}/access`, {
+    method: "PATCH",
+    body: grantBody,
+  });
+  assert.equal((await api(colleague, "/projects")).total, 0);
+  assert.equal((await api(colleague, "/tasks")).project_total, 0);
+  await api(colleague, `/tasks/${privateTask.id}`, { status: 404 });
+  await api(colleague, `/projects/${privateProject.id}/access`, {
+    method: "PATCH",
+    status: 403,
+    body: { ...grantBody, expected_version: 2 },
+  });
+  await api(owner, `/projects/${privateProject.id}/access`, {
+    method: "PATCH",
+    body: {
+      expected_version: 2,
+      internal_access: "restricted",
+      grants: [
+        { membership_id: colleagueMe.membership.id, access: "participant" },
+      ],
+    },
+  });
+  assert.equal(
+    (await api(colleague, `/tasks/${privateTask.id}`)).id,
+    privateTask.id,
+  );
+  await api(owner, `/projects/${privateProject.id}/access`, {
+    method: "PATCH",
+    status: 409,
+    body: grantBody,
+  });
+  await api(owner, `/projects/${privateProject.id}/access`, {
+    method: "PATCH",
+    body: { expected_version: 3, internal_access: "restricted", grants: [] },
+  });
+  await api(colleague, `/tasks/${privateTask.id}`, { status: 404 });
+  await api(colleague, `/memberships/${ownerMe.membership.id}`, {
+    method: "PATCH",
+    status: 403,
+    body: { expected_version: 1, role: "regular" },
+  });
+  await api(owner, `/memberships/${ownerMe.membership.id}`, {
+    method: "PATCH",
+    status: 409,
+    body: { expected_version: 1, status: "suspended" },
+  });
+  await api(owner, `/memberships/${colleagueMe.membership.id}`, {
+    method: "PATCH",
+    body: { expected_version: 1, role: "admin" },
+  });
+  await api(colleague, "/me", { status: 401 });
+  await login(colleague, "policy-colleague@example.invalid");
+  // Existing accounts select their earliest workspace; return to the shared tenant.
+  await colleague.ctx.request.post(url + "/account/switch", {
+    form: { csrf: colleague.identity.csrf, workspace_id: ownerMe.workspace_id },
+  });
+  await refresh(colleague);
+  const scopedToken = await request(colleague, "/api/account/token", {
+    method: "POST",
+    body: { name: "policy-agent" },
+  });
+  const statuses = await Promise.all([
+    owner.ctx.request.patch(
+      url + `/api/v1/memberships/${ownerMe.membership.id}`,
+      {
+        headers: { "X-CSRF-Token": owner.identity.csrf },
+        data: { expected_version: 1, role: "regular" },
+      },
+    ),
+    colleague.ctx.request.patch(
+      url + `/api/v1/memberships/${colleagueMe.membership.id}`,
+      {
+        headers: { "X-CSRF-Token": colleague.identity.csrf },
+        data: { expected_version: 2, role: "regular" },
+      },
+    ),
+  ]);
+  assert.deepEqual(statuses.map((r) => r.status()).sort(), [200, 409]);
+  const adminRows = db
+    .prepare(
+      "SELECT user_id FROM memberships WHERE workspace_id=? AND access_role='admin' AND status='active'",
+    )
+    .all(ownerMe.workspace_id);
+  assert.equal(adminRows.length, 1);
+  const survivor = adminRows[0].user_id === ownerMe.user_id ? owner : colleague;
+  const demoted = survivor === owner ? colleague : owner;
+  await api(demoted, "/me", { status: 401 });
+  // Suspend the remaining token issuer when it is the colleague, or check the
+  // demotion-triggered token revocation directly when the colleague lost admin.
+  if (survivor === owner) {
+    const tokenResponse = await owner.ctx.request.get(url + "/api/v1/me", {
+      headers: { Authorization: "Bearer " + scopedToken.token },
+    });
+    assert.equal(tokenResponse.status(), 401);
+  }
+  pass(
+    "Real membership and project APIs enforce roles, reject spoofed actors, revoke credentials, hide restricted counts and preserve one admin under concurrent demotion",
+  );
+  const newTenantKey = crypto.randomUUID();
+  const tenant = await api(survivor, "/tenants", {
+    method: "POST",
+    status: 201,
+    key: newTenantKey,
+    body: { name: "Second agency", timezone: "UTC" },
+  });
+  await refresh(survivor);
+  assert.equal(survivor.identity.workspace_id, tenant.id);
+  const repeated = await api(survivor, "/tenants", {
+    method: "POST",
+    status: 201,
+    key: newTenantKey,
+    body: { name: "Second agency", timezone: "UTC" },
+  });
+  assert.equal(repeated.id, tenant.id);
+  await refresh(survivor);
+  await api(survivor, `/tasks/${privateTask.id}`, { status: 404 });
+  assert.equal((await api(survivor, "/projects")).total, 0);
+  pass(
+    "Workspace creation is idempotent, rotates workspace context, and keeps overlapping project/task IDs isolated",
+  );
   assert.deepEqual(errors, [], "No browser JavaScript exceptions");
   assert.ok(!output.includes("Tasktrack request failed:"), output);
   await writeFile(

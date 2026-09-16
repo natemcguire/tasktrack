@@ -210,7 +210,7 @@ async def route(accounts, request, path, data):
         if await accounts.one("SELECT id FROM passkeys WHERE id=?", result["id"]):
             raise Error(409, "passkey_exists", "That passkey is already registered.")
         saved = await accounts.one(
-            "INSERT INTO passkeys SELECT ?,?,?,?,?,?,NULL,?,? WHERE EXISTS(SELECT 1 FROM sessions s JOIN memberships m ON m.user_id=s.user_id AND m.workspace_id=s.workspace_id WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>?) AND (SELECT COUNT(*) FROM passkeys WHERE user_id=?)<10 RETURNING id",
+            "INSERT INTO passkeys SELECT ?,?,?,?,?,?,NULL,?,? WHERE EXISTS(SELECT 1 FROM sessions s JOIN memberships m ON m.user_id=s.user_id AND m.workspace_id=s.workspace_id AND m.status='active' WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>?) AND (SELECT COUNT(*) FROM passkeys WHERE user_id=?)<10 RETURNING id",
             result["id"],
             identity["user_id"],
             result["public_key"],
@@ -247,7 +247,7 @@ async def route(accounts, request, path, data):
     await accounts.db.batch(
         [
             accounts.statement(
-                "INSERT INTO sessions SELECT ?,p.user_id,(SELECT workspace_id FROM memberships WHERE user_id=p.user_id ORDER BY created_at,workspace_id LIMIT 1),?,? FROM passkeys p WHERE p.id=?",
+                "INSERT INTO sessions SELECT ?,p.user_id,(SELECT workspace_id FROM memberships WHERE user_id=p.user_id AND status='active' ORDER BY created_at,workspace_id LIMIT 1),?,? FROM passkeys p WHERE p.id=?",
                 digest(session),
                 csrf,
                 timestamp() + SESSION_AGE,

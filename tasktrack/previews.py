@@ -27,18 +27,25 @@ def read_cookie(accounts, request, name):
     return cookie_value(request, ("" if accounts.local else "__Host-") + name)
 
 
-async def allowed(accounts, identity, preview):
+async def allowed(worker, accounts, identity, preview):
     # Session membership is rechecked by authenticate on every document request.
     if not identity:
         return False
-    member = await accounts.one(
-        "SELECT role FROM memberships WHERE workspace_id=? AND user_id=?",
-        preview["workspace_id"],
-        identity["user_id"],
+    member = await accounts.member_identity(
+        identity["user_id"], preview["workspace_id"]
     )
     if not member:
         return False
-    if member["role"] == "owner":
+    if (
+        member["kind"] == "external"
+        and getattr(worker.env, "CUSTOMER_ACCESS_V2", "") != "1"
+    ):
+        return False
+    try:
+        await worker.task_call(member, "/api/v1/projects/" + str(preview["project_id"]))
+    except Error:
+        return False
+    if member["access_role"] == "admin":
         return True
     return bool(
         await accounts.one(
@@ -50,11 +57,11 @@ async def allowed(accounts, identity, preview):
     )
 
 
-async def lookup(accounts, identity, identifier):
+async def lookup(worker, accounts, identity, identifier):
     row = await accounts.one(
         "SELECT * FROM previews WHERE id=? AND revoked_at IS NULL", identifier
     )
-    if not row or not await allowed(accounts, identity, row):
+    if not row or not await allowed(worker, accounts, identity, row):
         raise Error(
             404, "preview_missing", "This preview is unavailable for your account."
         )
@@ -176,7 +183,7 @@ async def authorize(worker, request, accounts, query):
         )
     if identity["bearer"]:
         raise Error(403, "browser_session_required", "Sign in through your browser.")
-    await lookup(accounts, identity, identifier)
+    await lookup(worker, accounts, identity, identifier)
     grant = token()
     await accounts.run(
         "INSERT INTO preview_grants VALUES (?,?,?,?,?)",
@@ -253,7 +260,7 @@ async def route(worker, request, accounts, path, query):
                 "Set-Cookie": cookie(accounts, "preview_state", challenge, 300),
             },
         )
-    row = await lookup(accounts, identity, match[1])
+    row = await lookup(worker, accounts, identity, match[1])
     if match[2]:
         blob = await worker.env.FILES.get(row["object_key"])
         if not blob:

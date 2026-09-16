@@ -12,8 +12,8 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from workers import DurableObject, Request, Response, WorkerEntrypoint
 
-from tasktrack import previews
-from tasktrack import passkeys
+from tasktrack import membership_api, passkeys, previews
+from tasktrack.access import Access
 from tasktrack.accounts import Accounts, digest, safe_next, timestamp, token
 from tasktrack.asset_version import ASSET_VERSION
 from tasktrack.cloud_store import CloudStore
@@ -49,6 +49,9 @@ class Workspace(DurableObject):
         def run():
             nonlocal failure
             try:
+                if not payload.get("identity"):
+                    raise Error(401, "sign_in_required", "Sign in to your workspace.")
+                self.service.access = Access(payload["identity"])
                 if payload["method"] == "GET":
                     attachment = re.fullmatch(
                         r"/api/v1/attachments/(\d+)/content", payload["path"]
@@ -163,6 +166,7 @@ class Default(WorkerEntrypoint):
         )
         result = await stub.execute(
             {
+                "identity": identity,
                 "path": path,
                 "method": method,
                 "actor": identity.get("actor", "customer"),
@@ -383,6 +387,14 @@ class Default(WorkerEntrypoint):
             )
             if not share:
                 raise Error(404, "share_missing", "This shared task is unavailable.")
+            creator = await accounts.member_identity(
+                share["created_by"], share["workspace_id"]
+            )
+            if not creator:
+                raise Error(404, "share_missing", "This shared task is unavailable.")
+            _, task = await self.task_call(
+                creator, "/api/v1/tasks/" + str(share["task_id"])
+            )
             if shared[2]:
                 blob = await self.env.FILES.get(share["preview_key"])
                 if not blob:
@@ -390,9 +402,6 @@ class Default(WorkerEntrypoint):
                         404, "image_missing", "The task preview is unavailable."
                     )
                 return Response(blob.body, headers={"Content-Type": "image/png"})
-            _, task = await self.task_call(
-                share, "/api/v1/tasks/" + str(share["task_id"])
-            )
             return html(share_page(share, task, accounts.origin))
         identity = await accounts.authenticate(request)
         invitation = re.fullmatch(r"/invite/([A-Za-z0-9_-]{43})", path)
@@ -442,6 +451,49 @@ class Default(WorkerEntrypoint):
                 return redirect("/")
         if path.startswith("/api/account"):
             return await self.account_api(request, accounts, identity, path, method)
+        if path == "/api/v1/me" and method == "GET":
+            return Response.json(
+                {
+                    "user_id": identity["user_id"],
+                    "email": identity["email"],
+                    "workspace_id": identity["workspace_id"],
+                    "membership": {
+                        "id": identity["membership_id"],
+                        "kind": identity["kind"],
+                        "role": identity["access_role"],
+                        "revision": identity["membership_revision"],
+                    },
+                    "workspaces": await accounts.many(
+                        "SELECT w.id,w.name,m.kind,m.access_role AS role,m.revision FROM memberships m JOIN workspaces w ON w.id=m.workspace_id WHERE m.user_id=? AND m.status='active' AND (?=0 OR w.id=?)",
+                        identity["user_id"],
+                        int(identity["bearer"]),
+                        identity["workspace_id"],
+                    ),
+                }
+            )
+        if path == "/api/v1/memberships" and method == "GET":
+            return Response.json(
+                {"items": await membership_api.members(accounts, identity)}
+            )
+        membership_match = re.fullmatch(r"/api/v1/memberships/([a-f0-9]{32})", path)
+        if membership_match and method == "PATCH":
+            accounts.csrf(request, identity)
+            return Response.json(
+                await membership_api.patch(
+                    accounts, identity, membership_match[1], await body_data(request)
+                )
+            )
+        if path == "/api/v1/tenants" and method == "POST":
+            accounts.csrf(request, identity)
+            return Response.json(
+                await membership_api.create_tenant(
+                    accounts,
+                    identity,
+                    await body_data(request),
+                    request.headers.get("Idempotency-Key"),
+                ),
+                status=201,
+            )
         if path.startswith("/api/v1/"):
             preview_route = re.fullmatch(
                 r"/api/v1/tasks/([A-Za-z0-9-]+)/client-preview", path
@@ -514,6 +566,13 @@ class Default(WorkerEntrypoint):
                     )
                 else:
                     body = await body_data(request)
+                    if (
+                        re.fullmatch(r"/api/v1/projects/[^/]+/access", path)
+                        and method == "PATCH"
+                    ):
+                        body = await membership_api.resolve_grants(
+                            accounts, identity, body
+                        )
             status, result = await self.task_call(
                 identity,
                 path,
@@ -544,6 +603,33 @@ class Default(WorkerEntrypoint):
                         "Content-Disposition": "attachment; filename=\"download\"; filename*=UTF-8''"
                         + quote(result["filename"], safe=""),
                     },
+                )
+            if method == "GET" and re.fullmatch(
+                r"/api/v1/projects/[^/]+/participants", path
+            ):
+                rows = await accounts.many(
+                    "SELECT m.id,m.user_id,u.name,u.email,m.kind,m.customer_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=? AND m.status='active'",
+                    identity["workspace_id"],
+                )
+                selected = [
+                    row
+                    for row in rows
+                    if (result["all_internal"] and row["kind"] == "internal")
+                    or (
+                        row["id"] in result["membership_ids"]
+                        and (
+                            row["kind"] == "internal"
+                            or row["customer_id"] == result["customer_id"]
+                        )
+                    )
+                ]
+                return Response.json(
+                    {
+                        "items": [
+                            {k: row[k] for k in ("id", "user_id", "name", "kind")}
+                            for row in selected
+                        ]
+                    }
                 )
             return Response.json(result, status=status)
         if method == "GET" and (

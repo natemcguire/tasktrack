@@ -11,7 +11,7 @@ from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def now():
@@ -36,6 +36,12 @@ class Error(Exception):
 
 
 MIGRATIONS = {
+    4: [
+        "CREATE TABLE project_access (project_id INTEGER PRIMARY KEY REFERENCES projects(id), internal_access TEXT NOT NULL DEFAULT 'all' CHECK(internal_access IN ('all','restricted')), customer_id TEXT, revision INTEGER NOT NULL DEFAULT 1)",
+        "INSERT INTO project_access(project_id) SELECT id FROM projects",
+        "CREATE TRIGGER project_access_create AFTER INSERT ON projects BEGIN INSERT INTO project_access(project_id) VALUES(NEW.id); END",
+        "CREATE TABLE project_grants (project_id INTEGER NOT NULL REFERENCES projects(id), membership_id TEXT NOT NULL, access TEXT NOT NULL DEFAULT 'participant' CHECK(access IN ('participant','manager')), customer_id TEXT, capabilities TEXT NOT NULL DEFAULT '[]', can_view_invoices INTEGER NOT NULL DEFAULT 0, can_approve_scope INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(project_id,membership_id))",
+    ],
     1: [
         "CREATE TABLE instance (id TEXT PRIMARY KEY, created_at TEXT NOT NULL)",
         "CREATE TABLE projects (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, name TEXT NOT NULL, brief_markdown TEXT NOT NULL DEFAULT '', document_links TEXT NOT NULL DEFAULT '[]', version INTEGER NOT NULL, created_by TEXT, created_via TEXT, created_at TEXT NOT NULL, updated_by TEXT, updated_via TEXT, updated_at TEXT NOT NULL)",

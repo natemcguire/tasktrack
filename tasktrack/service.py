@@ -148,7 +148,8 @@ def checkpoint(value):
 
 
 class Service:
-    def __init__(self, store, base_url="http://127.0.0.1:7777"):
+    def __init__(self, store, base_url="http://127.0.0.1:7777", access=None):
+        self.access = access
         self.store, self.base_url = store, base_url.rstrip("/")
         with store.connection() as c:
             self.instance_id = c.execute("SELECT id FROM instance").fetchone()[0]
@@ -177,7 +178,7 @@ class Service:
             )
         ]
         value["url"] = f"{self.base_url}/projects/{value['key']}"
-        return value
+        return self.access.project_data(c, value) if self.access else value
 
     def task(self, c, identifier):
         match = re.fullmatch(r"([A-Za-z][A-Za-z0-9]{0,9})-(\d+)", str(identifier))
@@ -196,6 +197,8 @@ class Service:
         )
         if row is None or (project_id is not None and row["project_id"] != project_id):
             raise Error(404, "not_found", f"Task {identifier} does not exist.")
+        if self.access:
+            self.access.require(c, "work.read", row["project_id"], hidden=True)
         return {**dict(row), **json.loads(row["data"])} | {"data": None}
 
     def public_task(self, c, identifier, summary=False, project_cache=None):
@@ -397,6 +400,8 @@ class Service:
         ).hexdigest()
         context = {"actor": actor, "session": session, "via": via}
         with self.store.connection(write=True) as c:
+            if self.access:
+                self.access.write(self, c, method, path, body)
             receipt = c.execute(
                 "SELECT * FROM receipts WHERE actor=? AND request_key=?",
                 (actor, request_key),
@@ -421,6 +426,16 @@ class Service:
         if parts[:2] != ["api", "v1"]:
             raise Error(404, "not_found", "Use the versioned /api/v1 routes.")
         parts = parts[2:]
+        if (
+            len(parts) == 3
+            and parts[0] == "projects"
+            and parts[2] == "access"
+            and method == "PATCH"
+            and self.access
+        ):
+            return 200, self.access.update_project_access(
+                self, c, parts[1], body, context
+            )
         if parts == ["projects"] and method == "POST":
             return 201, self.write_project(c, None, body, context)
         if len(parts) == 2 and parts[0] == "projects" and method == "PATCH":
@@ -1293,6 +1308,10 @@ class Service:
             project = self.project(c, query["project_id"])
             where.append("project_id=?")
             params.append(project["id"])
+        if self.access:
+            scope, scope_params = self.access.task_scope(c)
+            where.append(scope)
+            params.extend(scope_params)
         total_where, total_params = list(where), list(params)
         if "status" in query:
             total_where.append("status=?")
@@ -1392,6 +1411,50 @@ class Service:
             if parts[:2] != ["api", "v1"]:
                 raise Error(404, "not_found", "Use /api/v1.")
             parts = parts[2:]
+            if parts == ["me", "capabilities"] and self.access:
+                from .policy import ACTIONS, POLICY_VERSION, PROJECT_ACTIONS
+
+                fields(query, {"project_id"})
+                pid = (
+                    self.project(c, query["project_id"])["id"]
+                    if "project_id" in query
+                    else None
+                )
+                return {
+                    "policy_version": POLICY_VERSION,
+                    "capabilities": {
+                        action: (
+                            self.access.allowed(c, action, pid)
+                            if action in PROJECT_ACTIONS and pid is not None
+                            else self.access.allowed(c, action)
+                            if action not in PROJECT_ACTIONS
+                            else False
+                        )
+                        for action in sorted(ACTIONS)
+                    },
+                }
+            if (
+                len(parts) == 3
+                and parts[0] == "projects"
+                and parts[2] == "participants"
+                and self.access
+            ):
+                fields(query, set())
+                project = self.project(c, parts[1])
+                settings, _ = self.access.context(c, project["id"])
+                grants = [
+                    dict(r)
+                    for r in c.execute(
+                        "SELECT membership_id,customer_id FROM project_grants WHERE project_id=?",
+                        (project["id"],),
+                    )
+                ]
+                return {
+                    "all_internal": settings.internal_access == "all"
+                    and not self.access.external,
+                    "membership_ids": [g["membership_id"] for g in grants],
+                    "customer_id": settings.customer_id,
+                }
             if parts == ["health"]:
                 fields(query, set())
                 return {
@@ -1405,11 +1468,21 @@ class Service:
                     [
                         self.project(c, r[0])
                         for r in c.execute("SELECT id FROM projects ORDER BY id")
+                        if not self.access
+                        or self.access.allowed(c, "project.read", r[0])
                     ],
                     query,
                     path,
                     limit,
                 )
+            if (
+                len(parts) == 3
+                and parts[0] == "projects"
+                and parts[2] == "access"
+                and self.access
+            ):
+                fields(query, set())
+                return self.access.project_access(self, c, parts[1])
             if len(parts) == 2 and parts[0] == "projects":
                 fields(query, set())
                 return self.project(c, parts[1])
@@ -1512,6 +1585,11 @@ class Service:
                 examined = rows[:limit]
                 items = []
                 for row in examined:
+                    if self.access and (
+                        self.access.external
+                        or not self.access.allowed(c, "project.read", row["project_id"])
+                    ):
+                        continue
                     if "project_id" in query and str(row["project_id"]) != str(
                         query["project_id"]
                     ):
@@ -1539,6 +1617,8 @@ class Service:
             ).fetchone()
             if row is None:
                 raise Error(404, "not_found", "Attachment does not exist.")
+            if self.access:
+                self.task(c, row["task_id"])
             value = dict(row)
         return value
 

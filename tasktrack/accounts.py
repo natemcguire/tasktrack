@@ -231,7 +231,7 @@ class Accounts:
                     wid,
                 ),
                 self.statement(
-                    "INSERT INTO sessions SELECT ?,u.id,(SELECT workspace_id FROM memberships WHERE user_id=u.id ORDER BY created_at,workspace_id LIMIT 1),?,? FROM users u WHERE email=?",
+                    "INSERT INTO sessions SELECT ?,u.id,(SELECT workspace_id FROM memberships WHERE user_id=u.id AND status='active' ORDER BY created_at,workspace_id LIMIT 1),?,? FROM users u WHERE email=?",
                     digest(session),
                     csrf,
                     now + SESSION_AGE,
@@ -271,16 +271,32 @@ class Accounts:
         table = "api_tokens" if bearer else "sessions"
         extra = "s.actor,s.id AS token_id" if bearer else "s.csrf,u.email AS actor"
         identity = await self.one(
-            f"SELECT u.id AS user_id,u.email,u.name,s.workspace_id,w.name AS workspace_name,m.role,{extra} "
+            f"SELECT u.id AS user_id,u.email,u.name,s.workspace_id,w.name AS workspace_name,m.role,m.id AS membership_id,m.kind,m.access_role,m.status,m.revision AS membership_revision,m.customer_id,m.capabilities AS membership_capabilities,{extra} "
             f"FROM {table} s JOIN users u ON u.id=s.user_id JOIN workspaces w ON w.id=s.workspace_id "
             "JOIN memberships m ON m.user_id=s.user_id AND m.workspace_id=s.workspace_id "
-            "WHERE s.token_hash=? AND s.expires_at>?",
+            "WHERE s.token_hash=? AND s.expires_at>? AND m.status='active'",
             session_hash,
             timestamp(),
         )
+        if (
+            identity
+            and identity["kind"] == "external"
+            and getattr(self.env, "CUSTOMER_ACCESS_V2", "") != "1"
+        ):
+            return None
         if identity:
             identity.update(bearer=bearer, session_hash=session_hash)
         return identity
+
+    async def member_identity(self, user_id, workspace_id):
+        row = await self.one(
+            "SELECT m.workspace_id,m.user_id,m.id AS membership_id,m.kind,m.access_role,m.status,m.revision AS membership_revision,m.customer_id,m.capabilities AS membership_capabilities,u.email,u.email AS actor FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.user_id=? AND m.workspace_id=? AND m.status='active'",
+            user_id,
+            workspace_id,
+        )
+        if row:
+            row["bearer"] = False
+        return row
 
     def csrf(self, request, identity, body=None):
         if identity["bearer"]:
@@ -292,19 +308,22 @@ class Accounts:
             raise Error(403, "csrf", "This page has expired. Reload and try again.")
 
     def owner(self, identity):
-        if identity["role"] != "owner":
-            raise Error(403, "owner_required", "Only the workspace owner can do this.")
+        if identity.get("access_role") != "admin" or identity.get("kind") != "internal":
+            raise Error(403, "owner_required", "Only a workspace admin can do this.")
 
     async def overview(self, identity):
         wid = identity["workspace_id"]
         return {
-            "passkeys": await self.many("SELECT id,name,created_at,last_used_at FROM passkeys WHERE user_id=? ORDER BY created_at",identity["user_id"]),
+            "passkeys": await self.many(
+                "SELECT id,name,created_at,last_used_at FROM passkeys WHERE user_id=? ORDER BY created_at",
+                identity["user_id"],
+            ),
             "workspaces": await self.many(
-                "SELECT w.id,w.name,m.role FROM memberships m JOIN workspaces w ON w.id=m.workspace_id WHERE m.user_id=? ORDER BY w.created_at,w.id",
+                "SELECT w.id,w.name,m.role,m.kind,m.access_role,m.status,m.revision FROM memberships m JOIN workspaces w ON w.id=m.workspace_id WHERE m.user_id=? AND m.status='active' ORDER BY w.created_at,w.id",
                 identity["user_id"],
             ),
             "members": await self.many(
-                "SELECT u.id,u.name,u.email,m.role FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=? ORDER BY m.created_at",
+                "SELECT u.id,u.name,u.email,m.role,m.kind,m.access_role,m.status,m.revision,m.id AS membership_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=? ORDER BY m.created_at",
                 wid,
             ),
             "tokens": await self.many(
@@ -321,7 +340,7 @@ class Accounts:
 
     async def switch(self, identity, workspace_id):
         row = await self.one(
-            "SELECT 1 FROM memberships WHERE workspace_id=? AND user_id=?",
+            "SELECT 1 FROM memberships WHERE workspace_id=? AND user_id=? AND status='active'",
             workspace_id,
             identity["user_id"],
         )

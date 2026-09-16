@@ -2,8 +2,11 @@
 
 `tasktrack.policy.decide()` evaluates one declared capability using current,
 server-loaded membership, project, grant, resource and optional agent records.
-It has no database, network or UI dependency. **Existing routes do not call this
-module yet. This change does not enable customer access.**
+It has no database, network or UI dependency. The hosted Worker now loads current
+membership context and enforces it through `tasktrack.access.Access` in the shared
+service. Local single-user CLI/HTTP use remains trusted. Customer sign-in stays
+disabled unless `CUSTOMER_ACCESS_V2=1`; do not enable it before invitation and
+shared-content integration tests pass. Existing task content stays internal.
 
 ```python
 from tasktrack.policy import Membership, Project, Resource, decide
@@ -25,8 +28,8 @@ if not decision.allowed:
 IDs are nonempty strings. Normalize stored IDs at the adapter boundary, not from
 untrusted request claims. `ACTIONS` is the declared capability catalog; unknown
 actions fail closed. Role/kind combinations are internal admin, internal billing,
-internal regular and external regular. Legacy owner/member rows need an explicit
-migration before integration, not a permissive fallback in this module.
+internal regular and external regular. Migration 0007 explicitly maps existing owner/member rows to admin/internal
+regular, assigns membership IDs and preserves historical records.
 
 ## Rules
 
@@ -91,5 +94,24 @@ python3 -m unittest discover -s tests -p 'test_policy.py'
 Tests exhaust the declared capability catalog against all four roles, then check
 cross-tenant IDs, revoked/suspended access, customer mismatches, internal visibility,
 financial restrictions, ownership, explicit grants, malformed context, unknown
-capabilities, and agent narrowing. These are unit-level policy proofs; API, browser,
-queued-delivery and populated-migration tests remain required for integration.
+capabilities, and agent narrowing. The hosted suite additionally exercises real D1/Worker/DO role changes, restricted
+project lists and counts, credential revocation, concurrent last-admin demotion,
+and idempotent tenant creation. Queued-delivery and shared customer-content checks
+remain required when those features are implemented.
+
+## Current enforcement
+
+Hosted project/task reads, lists, counts, search, board, brief, events, attachments
+and mutations pass through tenant policy. Mutations authorize before returning
+an idempotency receipt. Preview access rechecks project access; public task links
+and images require their creator to retain access. Legacy agent tokens retain
+their existing tenant-wide scope, intersected with the owner’s live permissions.
+The adapter supports narrower token context; issuance UI/scoped token persistence
+remain part of the agent API feature.
+
+Membership changes and credential revocation occur atomically in D1. Database
+triggers protect the last active admin even when two requests race. Project grant
+updates are versioned and audited in the same SQLite transaction as permission
+checks. Membership audit rows contain roles/status and actor attribution, not
+credential secrets. Customer project shells omit internal briefs and documents;
+all pre-existing tasks, notes and attachments remain internal.

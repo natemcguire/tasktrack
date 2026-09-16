@@ -215,3 +215,29 @@ the JSON action body; checkpoint/handoff also accept a bare checkpoint object.
 lists are supplied with `task update --file`. `project create/update --file` accepts
 document links. CLI uploads read an explicitly selected file, and downloads refuse
 to overwrite an existing destination.
+
+## Hosted access administration
+
+These routes require hosted authentication; browser mutations require the current
+CSRF token. Actor/role headers cannot grant permissions.
+
+| Route | Contract |
+| --- | --- |
+| `GET /api/v1/me` | Identity, current membership and accessible workspaces. Agent tokens see only their workspace. |
+| `GET /api/v1/me/capabilities?project_id=ID` | `policy_version` and a map of documented action names to booleans. |
+| `GET /api/v1/memberships` | Admin-only member records with `id`, `kind`, `role`, `status`, `revision`, `customer_id`, and `capabilities`. |
+| `PATCH /api/v1/memberships/ID` | Admin-only; `expected_version`, optional `role` (admin/billing/regular), `status` (active/suspended), `kind`, `customer_id`, `capabilities`, `reason`. Internal/external conversion requires a recent browser sign-in and a reason. |
+| `GET /api/v1/projects/ID/access` | Settings permission; returns `revision`, `internal_access`, `customer_id`, and grants. |
+| `PATCH /api/v1/projects/ID/access` | Admin-only; `expected_version` is the access revision, `internal_access` is all/restricted, and `grants` replaces the complete participant list. |
+| `GET /api/v1/projects/ID/participants` | Eligible active participants, without unrelated customer or staff records. |
+| `POST /api/v1/tenants` | Browser session, `Idempotency-Key`, `{name,timezone}`; creates a workspace/admin membership and switches the session. Reload to obtain rotated CSRF state. |
+
+A project grant has `membership_id`, `access` (participant/manager), optional
+`capabilities`, `can_view_invoices`, and `can_approve_scope`. Customer identity is
+resolved from stored membership, never accepted from grant JSON. Existing customer
+grants must be removed before changing a project's customer. The API rejects stale
+revisions with 409, and removing the last active admin with `last_admin` (409).
+Role/status/kind/capability changes revoke affected sessions and agent credentials
+in the same database transaction. A membership-level `project.create` grant can
+allow an internal non-admin to create projects; admin-only capabilities cannot
+be delegated. See [authorization policy](authorization-policy.md).
