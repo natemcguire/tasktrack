@@ -83,7 +83,7 @@ async function rawApi(
     delete bootstrap[key];
     return data;
   }
-  if (method !== "GET") {
+  if (method !== "GET" && !path.endsWith("/client-preview")) {
     projectsLoadedAt = 0;
     for (const key of Object.keys(bootstrap)) delete bootstrap[key];
   }
@@ -130,7 +130,7 @@ async function rawApi(
 async function api(path, options = {}) {
   const method = options.method || "GET",
     key = cacheKey(path);
-  if (method !== "GET") {
+  if (method !== "GET" && !path.endsWith("/client-preview")) {
     boardCache.clear();
     pendingBoards.clear();
   }
@@ -175,16 +175,21 @@ function safeLink(uri) {
   }
 }
 function inline(text) {
-  return esc(text)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\[([^\]]+)\]\(([^\s)]+)\)/g, (_, label, uri) => {
-      const decoded = uri
-        .replace(/&amp;/g, "&")
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'");
-      return `<a href="${safeLink(decoded)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
-    });
+  // Tokenize links and code before escaping so URLs cannot become nested anchors.
+  return String(text)
+    .split(/(`[^`]+`|\[[^\]]+\]\([^\s)]+\)|https?:\/\/[^\s<>]+)/g)
+    .map((part) => {
+      if (part.startsWith("`")) return `<code>${esc(part.slice(1, -1))}</code>`;
+      const link = part.match(/^\[([^\]]+)\]\(([^\s)]+)\)$/);
+      if (link)
+        return `<a href="${safeLink(link[2])}" target="_blank" rel="noopener noreferrer">${esc(link[1])}</a>`;
+      if (/^https?:\/\//.test(part)) {
+        const url = part.replace(/[.,;:!?)]+$/, "");
+        return `<a href="${safeLink(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>${esc(part.slice(url.length))}`;
+      }
+      return esc(part).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    })
+    .join("");
 }
 function markdown(text) {
   let html = "",
@@ -469,7 +474,11 @@ function projectForm(project = null) {
         { method: project ? "PATCH" : "POST", body, requestId },
       );
       state.project = saved;
-      history.replaceState({}, "", `/projects/${saved.key}`);
+      history.replaceState(
+        {},
+        "",
+        `/projects/${saved.key}${location.pathname.endsWith("/settings") ? "/settings" : ""}`,
+      );
       toast(
         project
           ? "Project settings saved. Earlier links still work."
@@ -770,6 +779,7 @@ async function moveForm(task, initial = task.status, beforeId = undefined) {
   await refresh();
 }
 function card(task) {
+  scheduleClientPreview(task);
   return `<article class="card" draggable="true" data-id="${task.id}"><div class="card-top"><span class="reference">${esc(task.reference)}</span><span class="priority ${task.priority}">${task.priority === "urgent" ? "↑↑" : task.priority === "high" ? "↑" : "―"} ${task.priority}</span></div><a href="/tasks/${task.id}" class="card-title" data-nav>${esc(task.title)}</a>${task.kind === "epic" ? `<span class="epic-tag">◇ Epic · ${task.progress.done}/${task.progress.total} complete</span>` : task.epic ? `<span class="epic-tag">◇ ${esc(task.epic.title)}</span>` : ""}${task.blocked ? `<span class="blocked-tag" title="${esc(task.blockers.join("; "))}">⊘ Blocked · ${esc(task.blockers[0])}</span>` : ""}<div class="card-foot"><span class="assignee"><span class="avatar">${esc(task.assignee ? task.assignee.slice(0, 2).toUpperCase() : "—")}</span><span class="assignee-name">${esc(task.assignee || "Unassigned")}</span></span><button class="icon-button card-menu" data-move="${task.id}" aria-label="Move ${esc(task.reference)}">⋯</button></div>${task.pickup_needed ? '<div class="pickup">Ready for pickup</div>' : task.execution ? '<div class="pickup">Session claimed</div>' : ""}</article>`;
 }
 async function board() {
@@ -788,7 +798,7 @@ async function board() {
           `<button class="view-tab ${state.view === v ? "active" : ""}" role="tab" aria-selected="${state.view === v}" data-view="${v}">${label}</button>`,
       )
       .join("")}</div><div id="project-view"></div>`;
-  $("#settings").onclick = () => projectForm(p);
+  $("#settings").onclick = () => navigate(`/projects/${p.key}/settings`);
   $("#new-task").onclick = () => taskForm();
   $("#new-epic").onclick = () => taskForm(null, "epic");
   document.querySelectorAll("[data-view]").forEach(
@@ -1121,6 +1131,7 @@ async function detail(identifier, navigation = state.navigation) {
     const share = document.createElement("button");
     share.className = "button";
     share.textContent = "Share with customer";
+    scheduleClientPreview(task);
     share.onclick = () => shareTask(task);
     $(".head-actions").append(share);
   }
@@ -1405,30 +1416,64 @@ function taskPreview(task, summary) {
   c.fillText("Open the link for the latest status", 785, 568);
   return canvas.toDataURL("image/png");
 }
+const clientPreviews = new Map();
+let previewQueue = Promise.resolve();
+function scheduleClientPreview(task) {
+  if (!account || navigator.connection?.saveData) return;
+  const key = `${account.workspace_id}:${task.id}:${task.version}`;
+  if (clientPreviews.has(key)) return;
+  const idle =
+    window.requestIdleCallback || ((callback) => setTimeout(callback, 100));
+  idle(() => {
+    previewQueue = previewQueue
+      .then(() => prepareClientPreview(task))
+      .catch(() => {});
+  });
+}
+function prepareClientPreview(task) {
+  const key = `${account.workspace_id}:${task.id}:${task.version}`;
+  if (clientPreviews.has(key)) return clientPreviews.get(key);
+  const pending = (async () => {
+    const cached = await api(`/tasks/${task.id}/client-preview`);
+    if (cached.version === task.version) return cached;
+    await new Promise((resolve) =>
+      (window.requestIdleCallback || ((cb) => setTimeout(cb, 0)))(resolve),
+    );
+    const image = taskPreview(task, "").split(",")[1];
+    return await api(`/tasks/${task.id}/client-preview`, {
+      method: "PUT",
+      body: { image, expected_version: task.version },
+    });
+  })().catch((error) => {
+    clientPreviews.delete(key);
+    throw error;
+  });
+  // One current entry per task in memory; the server also keeps one persisted image.
+  for (const old of clientPreviews.keys())
+    if (old.startsWith(`${account.workspace_id}:${task.id}:`))
+      clientPreviews.delete(old);
+  clientPreviews.set(key, pending);
+  return pending;
+}
 async function shareTask(task) {
   try {
-    const shares = await api(`/tasks/${task.id}/shares`);
-    const existing = shares.items
-      .map(
-        (s) =>
-          `<div class="share-link-row"><a href="${esc(s.url)}" target="_blank" rel="noopener">Open shared task</a><button type="button" class="button quiet" data-revoke-share="${esc(s.id)}">Revoke</button></div>`,
-      )
-      .join("");
+    const prepared = prepareClientPreview(task);
     showForm(
       "Share with customer",
-      `<p class="muted">Share this task’s title, current status, and your update. Anyone with the link can view it.</p>${field("summary", "Customer update", "", "textarea", "Write a short update for the customer.")}<img class="share-image" id="share-preview" alt="Task preview"><div id="existing-shares">${existing}</div>`,
+      `<p class="muted">Share this task’s title, current status, and your update. Anyone with the link can view it.</p>${field("summary", "Customer update", "", "textarea", "Write a short update for the customer.")}<div id="preview-loading" class="preview-loading" role="status"><span class="spinner" aria-hidden="true"></span>Generating client preview</div><img class="share-image" id="share-preview" alt="Task preview" hidden><div id="existing-shares"></div>`,
       async (form, version, requestId) => {
         const summary = form.get("summary").trim();
         if (!summary)
           throw { message: "Write a short update for the customer." };
-        const current = await api(`/tasks/${task.id}`);
-        const preview = taskPreview(current, summary);
+        const current = task;
+        const cached = await prepared;
+        const preview = "data:image/png;base64," + cached.image;
         const saved = await api(`/tasks/${task.id}/shares`, {
           method: "POST",
           requestId,
           body: {
             summary,
-            image: preview.split(",")[1],
+            use_cached_preview: true,
             expected_version: current.version,
           },
         });
@@ -1459,14 +1504,26 @@ async function shareTask(task) {
     );
     const summary = $('[name="summary"]', $("#editor"));
     summary.maxLength = 4000;
-    const update = () => {
-      $("#share-preview").src = taskPreview(
-        task,
-        summary.value || "Your customer update will appear here.",
-      );
-    };
-    summary.addEventListener("input", update);
-    update();
+    prepared
+      .then((cached) => {
+        if (!$("#share-preview")) return;
+        $("#share-preview").src = "data:image/png;base64," + cached.image;
+        $("#share-preview").hidden = false;
+        $("#preview-loading").hidden = true;
+      })
+      .catch((error) => {
+        if ($("#preview-loading"))
+          $("#preview-loading").textContent =
+            errorText(error) + " Close and try again.";
+      });
+    const shares = await api(`/tasks/${task.id}/shares`);
+    if (!$("#existing-shares")) return;
+    $("#existing-shares").innerHTML = shares.items
+      .map(
+        (s) =>
+          `<div class="share-link-row"><a href="${esc(s.url)}" target="_blank" rel="noopener">Open shared task</a><button type="button" class="button quiet" data-revoke-share="${esc(s.id)}">Revoke</button></div>`,
+      )
+      .join("");
     document.querySelectorAll("[data-revoke-share]").forEach((button) => {
       button.onclick = async () => {
         button.disabled = true;
@@ -1486,6 +1543,48 @@ async function shareTask(task) {
   } catch (error) {
     toast(errorText(error));
   }
+}
+function projectSettings() {
+  let project = state.project;
+  document.title = `${project.name} · Settings`;
+  $("#breadcrumb").innerHTML =
+    `<a href="/projects/${esc(project.key)}" data-nav>${esc(project.name)}</a> / Settings`;
+  $("#main").innerHTML =
+    `<div class="page-head"><h1>Project settings</h1><a class="button" href="/projects/${esc(project.key)}" data-nav>Back to board</a></div><div class="project-settings"><section class="settings-section"><h2>General</h2><form id="project-name-form"><label for="project-name">Project name</label><div class="settings-row"><input id="project-name" name="name" value="${esc(project.name)}" required maxlength="200"><button class="button primary">Save name</button></div><p id="project-settings-message" role="status"></p></form><p class="small muted">Project key: ${esc(project.key)}</p><button class="button" id="edit-project-details">Edit brief, key & links</button></section>${account ? '<section class="settings-section"><h2>People & invitations</h2><p>Project email invitations are not enabled yet.</p><a class="button" href="/account">Workspace members</a></section>' : ""}</div>`;
+  $("#edit-project-details").onclick = () => projectForm(project);
+  $("#project-name-form").onsubmit = async (event) => {
+    event.preventDefault();
+    const name = $("#project-name").value,
+      button = event.target.querySelector("button"),
+      notice = $("#project-settings-message");
+    button.disabled = true;
+    notice.textContent = "";
+    try {
+      const saved = await api(`/projects/${project.id}`, {
+        method: "PATCH",
+        body: { name, expected_version: project.version },
+      });
+      project = saved;
+      state.project = saved;
+      await loadProjects();
+      notice.textContent = "Project name saved.";
+      $("#breadcrumb").innerHTML =
+        `<a href="/projects/${esc(saved.key)}" data-nav>${esc(saved.name)}</a> / Settings`;
+      document.title = `${saved.name} · Settings`;
+    } catch (error) {
+      notice.textContent = errorText(error);
+      if (error.code === "version_conflict") {
+        try {
+          project = await api(`/projects/${project.id}`);
+          notice.textContent = `The project changed. Its current name is “${project.name}”. Review your entry, then save again.`;
+        } catch (refreshError) {
+          notice.textContent = errorText(refreshError);
+        }
+      }
+    } finally {
+      button.disabled = false;
+    }
+  };
 }
 async function projectIndex() {
   state.project = null;
@@ -1553,6 +1652,12 @@ async function route() {
       return;
     }
     if (!state.project) state.project = state.projects[0];
+    if (path.endsWith("/settings")) {
+      history.replaceState({}, "", `/projects/${state.project.key}/settings`);
+      renderProjects();
+      projectSettings();
+      return;
+    }
     history.replaceState({}, "", `/projects/${state.project.key}`);
     document.title = `${state.project.name} · Tasktrack`;
     renderProjects();

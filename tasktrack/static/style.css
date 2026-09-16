@@ -1592,3 +1592,68 @@ dialog::backdrop {
     margin-bottom: 12px;
   }
 }
+
+.project-settings {
+  max-width: 760px;
+}
+.settings-section {
+  border: 1px solid var(--line);
+  padding: 24px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  background: white;
+}
+.settings-section h2 {
+  margin: 0 0 18px;
+  font-size: 18px;
+}
+.settings-section label {
+  display: block;
+  margin-bottom: 8px;
+}
+.settings-row {
+  display: flex;
+  gap: 12px;
+}
+.settings-row input {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 700px) {
+  .settings-section {
+    padding: 16px;
+  }
+  .settings-row {
+    flex-direction: column;
+  }
+}
+
+.preview-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 180px;
+  color: var(--muted);
+}
+.preview-loading[hidden] {
+  display: none;
+}
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid #dbe4df;
+  border-top-color: #176b52;
+  border-radius: 50%;
+  animation: preview-spin 0.8s linear infinite;
+}
+@keyframes preview-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}

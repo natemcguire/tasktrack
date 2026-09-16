@@ -331,11 +331,9 @@ try {
     .fill("https://example.org/harbor/runs/42");
   await save("Save checkpoint");
   await expect(
-    page
-      .locator(".callout")
-      .filter({
-        hasText: "Run the disconnect regression, then review the receipt.",
-      }),
+    page.locator(".callout").filter({
+      hasText: "Run the disconnect regression, then review the receipt.",
+    }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Add comment", exact: true }).click();
   await dialog()
@@ -353,7 +351,9 @@ try {
   await openTask(second.id);
   await expect(page.locator(".comment .markdown")).toContainText("<script>");
   expect(await page.evaluate(() => window.tasktrackXSS)).toBeUndefined();
-  expect(await page.locator(".comment .markdown a").getAttribute("href")).toBe("#");
+  expect(await page.locator(".comment .markdown a").getAttribute("href")).toBe(
+    "#",
+  );
   await openTask(task.id);
   const upload = path.join(temp, "review-evidence.txt");
   const bytes = Buffer.from("Review evidence\nExact bytes: \u0000\u00ff\n");
@@ -428,10 +428,13 @@ try {
 
   await page.goto(`${url}/projects/HBR`);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Edit brief, key & links", exact: true })
+    .click();
   await dialog().getByLabel("Project key").fill("HARBOR");
   await dialog().getByLabel("Project name").fill("Harbor");
   await save("Save settings");
-  await expect(page).toHaveURL(`${url}/projects/HARBOR`);
+  await expect(page).toHaveURL(`${url}/projects/HARBOR/settings`);
   expect(cli("project", "get", "HBR").key).toBe("HARBOR");
   await page.goto(`${url}/tasks/HBR-${task.id}`);
   await expect(

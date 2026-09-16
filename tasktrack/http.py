@@ -127,7 +127,7 @@ class Handler(BaseHTTPRequestHandler):
                         else "text/css; charset=utf-8",
                     )
                 elif path in {"/", "/triage"} or re.fullmatch(
-                    r"/(projects/[A-Za-z0-9]+|tasks/[A-Za-z0-9-]+)", path
+                    r"/(projects/[A-Za-z0-9]+(?:/settings)?|tasks/[A-Za-z0-9-]+)", path
                 ):
                     self.send(
                         200,

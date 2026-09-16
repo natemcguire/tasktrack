@@ -18,7 +18,8 @@
 ## Evidence and limits
 
 The hosted browser suite checks a 390 × 844 viewport for project/task page overflow
-and all 22 wireframe screens; screenshots cover a task and invoice preview.
+and private preview navigation. All 22 design wireframes were checked before
+moving them to the separate scratch repository. Screenshots cover task and preview layouts.
 Desktop account, task, sharing and invitation checks remain in the same suite.
 These are browser viewport checks, not physical-device or assistive-technology
 certification. Native email-code AutoFill depends on the browser, device and mail

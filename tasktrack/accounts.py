@@ -31,7 +31,7 @@ def safe_next(value):
     return (
         value
         if re.fullmatch(
-            r"/(?:preview/return/[a-f0-9-]{36}/[A-Za-z0-9_-]{43}|triage|invite/[A-Za-z0-9_-]{43}|tasks/[0-9]+|projects/[A-Za-z0-9]+)?",
+            r"/(?:preview/return/[a-f0-9-]{36}/[A-Za-z0-9_-]{43}|triage|invite/[A-Za-z0-9_-]{43}|tasks/[0-9]+|projects/[A-Za-z0-9]+(?:/settings)?)?",
             value or "",
         )
         else "/"

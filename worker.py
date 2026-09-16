@@ -436,6 +436,9 @@ class Default(WorkerEntrypoint):
         if path.startswith("/api/account"):
             return await self.account_api(request, accounts, identity, path, method)
         if path.startswith("/api/v1/"):
+            preview_route = re.fullmatch(r"/api/v1/tasks/([A-Za-z0-9-]+)/client-preview", path)
+            if preview_route:
+                return await self.client_preview_api(request, accounts, identity, preview_route[1], method)
             share_route = re.fullmatch(
                 r"/api/v1/tasks/([A-Za-z0-9-]+)/shares(?:/([a-f0-9-]+))?", path
             )
@@ -534,7 +537,9 @@ class Default(WorkerEntrypoint):
             return Response.json(result, status=status)
         if method == "GET" and (
             path in {"/", "/triage"}
-            or re.fullmatch(r"/(projects/[A-Za-z0-9]+|tasks/[A-Za-z0-9-]+)", path)
+            or re.fullmatch(
+                r"/(projects/[A-Za-z0-9]+(?:/settings)?|tasks/[A-Za-z0-9-]+)", path
+            )
         ):
             asset = await self.env.ASSETS.fetch(accounts.origin + "/")
             content = await asset.text()
@@ -607,7 +612,8 @@ class Default(WorkerEntrypoint):
                             "/projects/by-key/" + path.split("/")[2]
                         )
                     pid = str(project["id"])
-                    await preload("/board", {"project_id": pid, "limit": "20"})
+                    if not path.endswith("/settings"):
+                        await preload("/board", {"project_id": pid, "limit": "20"})
                     first_view = (
                         '<div class="page-head"><h1>'
                         + escape(project["name"])
@@ -708,6 +714,36 @@ class Default(WorkerEntrypoint):
             return Response.json({"saved": True})
         raise Error(404, "not_found", "Account action not found.")
 
+    async def client_preview_api(self, request, accounts, identity, identifier, method):
+        _, task = await self.task_call(identity, "/api/v1/tasks/" + identifier)
+        wid = identity["workspace_id"]
+        if method == "GET":
+            row = await accounts.one("SELECT version,image FROM client_previews WHERE workspace_id=? AND task_id=?", wid, task["id"])
+            return Response.json(row if row and row["version"] == task["version"] else {"version": None})
+        accounts.csrf(request, identity)
+        if method != "PUT":
+            raise Error(405, "method", "Use GET or PUT.")
+        data = await body_data(request)
+        if data.get("expected_version") != task["version"]:
+            raise Error(409, "version_conflict", "The task changed. Reopen it to generate its latest preview.")
+        image = data.get("image")
+        self.preview_png(image)
+        await accounts.limit("preview:" + wid, 300, 60)
+        await accounts.run("INSERT INTO client_previews(workspace_id,task_id,version,image) VALUES(?,?,?,?) ON CONFLICT(workspace_id,task_id) DO UPDATE SET version=excluded.version,image=excluded.image WHERE excluded.version>=client_previews.version", wid, task["id"], task["version"], image)
+        return Response.json({"version": task["version"], "image": image})
+
+    @staticmethod
+    def preview_png(image):
+        if not isinstance(image, str) or len(image) > 1400000:
+            raise Error(422, "preview", "Create a PNG preview smaller than 1 MiB.")
+        try:
+            png = base64.b64decode(image, validate=True)
+            if len(png) < 33 or len(png) > 1024 * 1024 or png[:8] != b"\x89PNG\r\n\x1a\n" or png[12:16] != b"IHDR" or struct.unpack(">II", png[16:24]) != (1200, 630):
+                raise ValueError("Invalid preview")
+        except (ValueError, TypeError):
+            raise Error(422, "preview", "The preview must be a 1200 × 630 PNG.") from None
+        return png
+
     async def share_api(self, request, accounts, identity, match, method):
         _, task = await self.task_call(identity, "/api/v1/tasks/" + match[1])
         wid = identity["workspace_id"]
@@ -747,22 +783,12 @@ class Default(WorkerEntrypoint):
             raise Error(
                 422, "summary", "Write a customer update of 1–4,000 characters."
             )
-        if not isinstance(image, str) or len(image) > 1400000:
-            raise Error(422, "preview", "Create a PNG preview smaller than 1 MiB.")
-        try:
-            png = base64.b64decode(image, validate=True)
-            if (
-                len(png) < 33
-                or len(png) > 1024 * 1024
-                or png[:8] != b"\x89PNG\r\n\x1a\n"
-                or png[12:16] != b"IHDR"
-                or struct.unpack(">II", png[16:24]) != (1200, 630)
-            ):
-                raise ValueError("Invalid preview")
-        except (ValueError, TypeError):
-            raise Error(
-                422, "preview", "The preview must be a 1200 × 630 PNG."
-            ) from None
+        if data.get("use_cached_preview"):
+            cached = await accounts.one("SELECT version,image FROM client_previews WHERE workspace_id=? AND task_id=?", wid, task["id"])
+            if not cached or cached["version"] != task["version"]:
+                raise Error(409, "preview_pending", "Generating client preview. Reopen the task and try again.")
+            image = cached["image"]
+        png = self.preview_png(image)
         request_key = request.headers.get("Idempotency-Key", "")
         if not 1 <= len(request_key) <= 200:
             raise Error(422, "request_key", "Supply an Idempotency-Key.")

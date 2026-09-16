@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-16T18:21:47.535Z",
+  "checked_at": "2026-09-16T18:33:10.186Z",
   "runtime": "Cloudflare workerd / D1 / Durable Object SQLite / R2",
   "checks": [
     "Email-only signup; scanner-safe links are consumed once; each new account gets its own workspace",
@@ -11,7 +11,8 @@
     "Customer sharing renders metadata and a 1200×630 PNG, hides internal data, tracks current status, and revokes page and image",
     "Browser-issued agent tokens support the remote CLI, recovery, attachments, and immediate revocation",
     "Single-use invitations, member removal, and stale-tab checks preserve workspace isolation",
-    "Project preview grants, team mode, immediate revocation and all 22 mobile wireframes",
+    "Project preview grants, team mode, immediate revocation and mobile preview navigation",
+    "Dedicated project settings rename persists across reload and has a clearly scoped invitations section",
     "Threaded human replies and CLI agent replies persist with attribution; cross-task replies are rejected",
     "Hydrated reload avoids data refetches, project switch uses one compact request, return switch is cached, and mobile columns scroll with distinct colors",
     "Codes expire, lock after five failures, share single-use redemption with links, and preserve return paths under concurrent submission",

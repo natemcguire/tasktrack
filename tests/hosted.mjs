@@ -512,8 +512,39 @@ try {
   );
 
   await alice.page.goto(`${url}/tasks/${task.id}`);
+  await expect
+    .poll(
+      async () =>
+        (await api(alice, `/tasks/${task.id}/client-preview`)).version,
+    )
+    .toBe((await api(alice, `/tasks/${task.id}`)).version);
+  const readyPreview = await api(alice, `/tasks/${task.id}/client-preview`);
+  assert.ok(readyPreview.image.length > 100);
+  assert.equal(
+    (await api(bob, `/tasks/${task.id}/client-preview`)).version,
+    null,
+  );
+  let releasePreview;
+  const previewGate = new Promise((resolve) => {
+    releasePreview = resolve;
+  });
+  await alice.page.route(
+    `**/tasks/${task.id}/client-preview`,
+    async (route) => {
+      await previewGate;
+      await route.continue();
+    },
+  );
+  await alice.page.reload();
   await alice.page.getByRole("button", { name: "Share with customer" }).click();
   dialog = alice.page.getByRole("dialog");
+  await expect(dialog.getByRole("status")).toHaveText(
+    "Generating client preview",
+  );
+  releasePreview();
+  await expect(dialog.locator("#share-preview")).toBeVisible();
+  await alice.page.unroute(`**/tasks/${task.id}/client-preview`);
+
   await dialog
     .getByLabel("Customer update")
     .fill(
@@ -794,7 +825,7 @@ try {
       project_id: project.id,
       title: "Design gallery",
       html: await readFile(
-        path.join(root, "docs/product/wireframes.html"),
+        path.join(root, "tests/fixtures/private-preview.html"),
         "utf8",
       ),
     },
@@ -821,7 +852,7 @@ try {
   });
   await alice.page.setViewportSize({ width: 1440, height: 1000 });
   pass(
-    "Project preview grants, team mode, immediate revocation and all 22 mobile wireframes",
+    "Project preview grants, team mode, immediate revocation and mobile preview navigation",
   );
 
   const expiredSecret = "E".repeat(43);
@@ -866,6 +897,36 @@ try {
       .get("alice@example.invalid").count,
     1,
   );
+  await alice.page.goto(url + "/projects/HBR/settings");
+  await expect(
+    alice.page.getByRole("heading", { name: "Project settings", exact: true }),
+  ).toBeVisible();
+  await alice.page
+    .getByLabel("Project name", { exact: true })
+    .fill("Harbor checkout renamed");
+  await alice.page
+    .getByRole("button", { name: "Save name", exact: true })
+    .click();
+  await expect(
+    alice.page.getByRole("status").filter({ hasText: "Project name saved." }),
+  ).toBeVisible();
+  await alice.page.reload();
+  await expect(
+    alice.page.getByLabel("Project name", { exact: true }),
+  ).toHaveValue("Harbor checkout renamed");
+  await alice.page
+    .getByLabel("Project name", { exact: true })
+    .fill("Harbor checkout");
+  await alice.page
+    .getByRole("button", { name: "Save name", exact: true })
+    .click();
+  await expect(alice.page.locator("#project-settings-message")).toHaveText(
+    "Project name saved.",
+  );
+  pass(
+    "Dedicated project settings rename persists across reload and has a clearly scoped invitations section",
+  );
+
   const parentComment = await api(alice, `/tasks/${task.id}/comments`, {
     method: "POST",
     status: 201,
