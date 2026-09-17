@@ -1419,6 +1419,45 @@ try {
     body: { expected_version: 3, internal_access: "restricted", grants: [] },
   });
   await api(colleague, `/tasks/${privateTask.id}`, { status: 404 });
+  // Browser regression: the access editor adds an ungranted internal member,
+  // preserves grant metadata the form doesn't surface, and shows a read-only
+  // view to a non-admin. Seed a grant that carries extra metadata first.
+  await api(owner, `/projects/${privateProject.id}/access`, {
+    method: "PATCH",
+    body: {
+      expected_version: 4,
+      internal_access: "restricted",
+      grants: [
+        {
+          membership_id: colleagueMe.membership.id,
+          access: "manager",
+          can_approve_scope: true,
+        },
+      ],
+    },
+  });
+  await owner.page.goto(url + "/projects/PRIVATE/settings");
+  await expect(
+    owner.page.getByRole("heading", { name: "Access", exact: true }),
+  ).toBeVisible();
+  // Non-admin (regular) colleague sees access read-only: no Save control.
+  await colleague.page.goto(url + `/projects/PRIVATE/settings`);
+  await expect(
+    colleague.page.getByRole("heading", { name: "Access", exact: true }),
+  ).toBeVisible();
+  await expect(colleague.page.locator("#access-save")).toHaveCount(0);
+  // Owner saves without touching the manager grant; its can_approve_scope
+  // metadata must survive the round-trip through the form.
+  await owner.page.locator("#access-save").click();
+  await expect(
+    owner.page.getByRole("status").filter({ hasText: "Access saved." }),
+  ).toBeVisible();
+  const afterSave = await api(owner, `/projects/${privateProject.id}/access`);
+  const preserved = afterSave.grants.find(
+    (g) => g.membership_id === colleagueMe.membership.id,
+  );
+  assert.equal(preserved.access, "manager");
+  assert.ok(preserved.can_approve_scope, "can_approve_scope preserved through the form");
   await api(colleague, `/memberships/${ownerMe.membership.id}`, {
     method: "PATCH",
     status: 403,

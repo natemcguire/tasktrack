@@ -1591,7 +1591,7 @@ const ACCESS_LABELS = { participant: "Participant", manager: "Manager" };
 async function projectAccess(project) {
   const section = $("#access-section");
   if (!section) return;
-  let access, caps, participants;
+  let access, caps, participants, members;
   try {
     [access, caps, participants] = await Promise.all([
       api(`/projects/${project.id}/access`),
@@ -1604,18 +1604,36 @@ async function projectAccess(project) {
     $("#access-retry").onclick = () => projectAccess(project);
     return;
   }
-  const canEdit = !!caps.capabilities["project.settings"];
-  const people = (participants.items || []).map((p) => ({
+  // Editing grants is admin-only (backend requires identity.manage), so gate on it.
+  const canEdit = !!caps.capabilities["identity.manage"];
+  // Participants only lists members already eligible/added. Admins editing a
+  // restricted project also need the full internal roster to add someone new.
+  let roster = (participants.items || []).map((p) => ({
     membership_id: p.id,
     name: p.name,
   }));
-  renderAccess(project, access, people, canEdit);
+  if (canEdit) {
+    try {
+      members = await api("/memberships");
+      const seen = new Set(roster.map((p) => p.membership_id));
+      for (const m of members.items || []) {
+        if (m.kind === "internal" && m.status === "active" && !seen.has(m.id)) {
+          roster.push({ membership_id: m.id, name: m.name || m.email });
+        }
+      }
+    } catch {
+      /* fall back to participants-only roster */
+    }
+  }
+  renderAccess(project, access, roster, canEdit);
 }
 function renderAccess(project, access, participants, canEdit) {
   const section = $("#access-section");
   section.setAttribute("aria-busy", "false");
   const byId = new Map(participants.map((p) => [p.membership_id, p]));
-  const grants = access.grants.map((g) => ({ ...g }));
+  // Clone full grant objects so we preserve capabilities / can_view_invoices /
+  // can_approve_scope that this editor doesn't surface but must not drop.
+  let grants = access.grants.map((g) => ({ ...g }));
   const restricted = access.internal_access === "restricted";
   const visibilityControl = canEdit
     ? `<fieldset class="access-visibility"><legend>Who on your team can see this project</legend>
@@ -1697,10 +1715,20 @@ function renderAccess(project, access, participants, canEdit) {
         body: {
           expected_version: access.revision,
           internal_access: restrictedNow() ? "restricted" : "all",
-          grants: grants.map((g) => ({
-            membership_id: g.membership_id,
-            access: g.access,
-          })),
+          // Send only the fields the backend accepts, but keep the metadata this
+          // form doesn't surface (capabilities / can_view_invoices /
+          // can_approve_scope) so an edit here doesn't drop them.
+          grants: grants.map((g) => {
+            const out = { membership_id: g.membership_id, access: g.access };
+            if (g.capabilities !== undefined) out.capabilities = g.capabilities;
+            // Coerce flags to real booleans; the API stores them as 0/1 and
+            // rejects non-boolean values on save.
+            if (g.can_view_invoices !== undefined)
+              out.can_view_invoices = !!g.can_view_invoices;
+            if (g.can_approve_scope !== undefined)
+              out.can_approve_scope = !!g.can_approve_scope;
+            return out;
+          }),
         },
       });
       toast("Access saved.");
@@ -1709,13 +1737,28 @@ function renderAccess(project, access, participants, canEdit) {
       notice.className = "access-error";
       notice.textContent = errorText(error);
       if (error.code === "version_conflict") {
-        notice.textContent =
-          "Someone else changed this project’s access. Your edits are kept below — review them, then save again.";
+        // Don't silently swap in the new revision — that would let a second Save
+        // overwrite changes the user never saw. Show what changed and make them
+        // choose to reload before editing further.
+        button.disabled = false;
+        let current;
         try {
-          access = await api(`/projects/${project.id}/access`);
+          current = await api(`/projects/${project.id}/access`);
         } catch (refreshError) {
           notice.textContent = errorText(refreshError);
+          return;
         }
+        notice.className = "access-error";
+        notice.innerHTML = "";
+        const msg = document.createElement("p");
+        msg.textContent =
+          "Someone else changed this project’s access while you were editing. Your unsaved changes are still shown above. Load their version to see what changed — this discards your edits — or cancel and copy anything you need first.";
+        const reload = document.createElement("button");
+        reload.className = "button";
+        reload.textContent = "Load their version";
+        reload.onclick = () => renderAccess(project, current, participants, canEdit);
+        notice.append(msg, reload);
+        return;
       }
     } finally {
       button.disabled = false;
