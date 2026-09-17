@@ -67,6 +67,10 @@ def parser():
     p.add_argument("--version", type=int, required=True)
     for flag in ("key", "name", "brief-file", "file"):
         p.add_argument("--" + flag)
+    p = sub(project, "columns", "View or update board columns")
+    p.add_argument("id")
+    p.add_argument("--version", "--expected-version", dest="version", type=int)
+    p.add_argument("--file", help="JSON file containing columns configuration")
     task = sub(commands, "task").add_subparsers(dest="operation", required=True)
     p = sub(task, "create")
     p.add_argument("project")
@@ -83,6 +87,8 @@ def parser():
         "q",
         "kind",
         "cursor",
+        "column-id",
+        "phase",
     ):
         p.add_argument("--" + flag)
     p.add_argument("--limit", type=int)
@@ -124,7 +130,7 @@ def parser():
         ):
             p.add_argument(
                 "--" + field.replace("_", "-"),
-                type=int if field == "before_id" else str,
+                type=int if field in {"before_id", "after_id", "column_id"} else str,
             )
         if "reopen_parent" in ACTION_FIELDS[operation]:
             p.add_argument("--reopen-parent", action="store_true", default=None)
@@ -203,6 +209,16 @@ def execute(args):
             return read("projects", {"cursor": args.cursor})
         if operation == "get":
             return read("projects/" + args.id)
+        if operation == "columns":
+            if (
+                getattr(args, "file", None)
+                or getattr(args, "version", None) is not None
+            ):
+                body = file_data()
+                if getattr(args, "version", None) is not None:
+                    body["expected_version"] = args.version
+                return write("projects/" + args.id + "/columns", body, "PUT")
+            return read("projects/" + args.id + "/columns")
         body = file_data()
         for key in ("key", "name"):
             if getattr(args, key, None) is not None:
@@ -227,6 +243,8 @@ def execute(args):
                 "kind",
                 "limit",
                 "cursor",
+                "column_id",
+                "phase",
             )
         }
         if args.project:
@@ -295,6 +313,25 @@ def execute(args):
 
 
 def human(value):
+    if isinstance(value, dict) and "columns" in value and "phase_defaults" in value:
+        lines = [f"Board Columns (version {value.get('version', 0)}):"]
+        defaults_by_col = {}
+        for phase, col_id in value.get("phase_defaults", {}).items():
+            defaults_by_col.setdefault(col_id, []).append(phase)
+        for col in value["columns"]:
+            phases = ",".join(col.get("allowed_phases", []))
+            defs = defaults_by_col.get(col["id"], [])
+            def_str = f" [default: {','.join(defs)}]" if defs else ""
+            wip = (
+                f" (wip: {col['wip_limit']})"
+                if col.get("wip_limit") is not None
+                else ""
+            )
+            cnt = f" - {col['task_count']} tasks" if "task_count" in col else ""
+            lines.append(
+                f"  #{col['id']:<3} {col['name']:<20} phases: [{phases}]{def_str}{wip}{cnt}"
+            )
+        return "\n".join(lines)
     if "items" in value:
         lines = []
         for item in value["items"]:
