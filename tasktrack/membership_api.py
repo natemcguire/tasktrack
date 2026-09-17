@@ -80,8 +80,13 @@ async def patch(accounts, identity, member_id, body):
     caps = sorted(set(caps))
     if kind == "internal":
         customer = None
+    reason = body.get("reason")
+    if reason is not None and (
+        not isinstance(reason, str) or len(reason.strip()) > 2000
+    ):
+        raise Error(422, "invalid_reason", "Use a reason of up to 2,000 characters.")
+    reason = reason.strip() if isinstance(reason, str) else None
     if kind != old["kind"]:
-        reason = body.get("reason")
         if identity["bearer"] or not isinstance(reason, str) or not reason.strip():
             raise Error(
                 403,
@@ -125,6 +130,7 @@ async def patch(accounts, identity, member_id, body):
             "capabilities",
         )
     }
+    before["capabilities"] = json.loads(old["capabilities"])
     after = {
         "kind": kind,
         "access_role": role,
@@ -133,6 +139,7 @@ async def patch(accounts, identity, member_id, body):
         "revision": old["revision"] + 1,
         "capabilities": caps,
     }
+    audit_after = {**after, "reason": reason or None}
     try:
         rows = await accounts.db.batch(
             [
@@ -154,7 +161,7 @@ async def patch(accounts, identity, member_id, body):
                     member_id,
                     identity["actor"],
                     json.dumps(before),
-                    json.dumps(after),
+                    json.dumps(audit_after),
                     timestamp(),
                 ),
             ]
