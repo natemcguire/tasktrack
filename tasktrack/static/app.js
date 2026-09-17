@@ -1550,8 +1550,9 @@ function projectSettings() {
   $("#breadcrumb").innerHTML =
     `<a href="/projects/${esc(project.key)}" data-nav>${esc(project.name)}</a> / Settings`;
   $("#main").innerHTML =
-    `<div class="page-head"><h1>Project settings</h1><a class="button" href="/projects/${esc(project.key)}" data-nav>Back to board</a></div><div class="project-settings"><section class="settings-section"><h2>General</h2><form id="project-name-form"><label for="project-name">Project name</label><div class="settings-row"><input id="project-name" name="name" value="${esc(project.name)}" required maxlength="200"><button class="button primary">Save name</button></div><p id="project-settings-message" role="status"></p></form><p class="small muted">Project key: ${esc(project.key)}</p><button class="button" id="edit-project-details">Edit brief, key & links</button></section>${account ? '<section class="settings-section"><h2>People & invitations</h2><p>Project email invitations are not enabled yet.</p><a class="button" href="/account">Workspace members</a></section>' : ""}</div>`;
+    `<div class="page-head"><h1>Project settings</h1><a class="button" href="/projects/${esc(project.key)}" data-nav>Back to board</a></div><div class="project-settings"><section class="settings-section"><h2>General</h2><form id="project-name-form"><label for="project-name">Project name</label><div class="settings-row"><input id="project-name" name="name" value="${esc(project.name)}" required maxlength="200"><button class="button primary">Save name</button></div><p id="project-settings-message" role="status"></p></form><p class="small muted">Project key: ${esc(project.key)}</p><button class="button" id="edit-project-details">Edit brief, key & links</button></section>${account ? '<section class="settings-section" id="access-section" aria-busy="true"><h2>Access</h2><p class="muted">Loading access…</p></section>' : ""}</div>`;
   $("#edit-project-details").onclick = () => projectForm(project);
+  if (account) projectAccess(project);
   $("#project-name-form").onsubmit = async (event) => {
     event.preventDefault();
     const name = $("#project-name").value,
@@ -1577,6 +1578,141 @@ function projectSettings() {
         try {
           project = await api(`/projects/${project.id}`);
           notice.textContent = `The project changed. Its current name is “${project.name}”. Review your entry, then save again.`;
+        } catch (refreshError) {
+          notice.textContent = errorText(refreshError);
+        }
+      }
+    } finally {
+      button.disabled = false;
+    }
+  };
+}
+const ACCESS_LABELS = { participant: "Participant", manager: "Manager" };
+async function projectAccess(project) {
+  const section = $("#access-section");
+  if (!section) return;
+  let access, caps, participants;
+  try {
+    [access, caps, participants] = await Promise.all([
+      api(`/projects/${project.id}/access`),
+      api(`/me/capabilities?project_id=${project.id}`),
+      api(`/projects/${project.id}/participants`),
+    ]);
+  } catch (error) {
+    section.setAttribute("aria-busy", "false");
+    section.innerHTML = `<h2>Access</h2><p class="access-error" role="alert">Couldn’t load access settings. ${esc(errorText(error))} <button class="button quiet" id="access-retry">Try again</button></p>`;
+    $("#access-retry").onclick = () => projectAccess(project);
+    return;
+  }
+  const canEdit = !!caps.capabilities["project.settings"];
+  const people = (participants.items || []).map((p) => ({
+    membership_id: p.id,
+    name: p.name,
+  }));
+  renderAccess(project, access, people, canEdit);
+}
+function renderAccess(project, access, participants, canEdit) {
+  const section = $("#access-section");
+  section.setAttribute("aria-busy", "false");
+  const byId = new Map(participants.map((p) => [p.membership_id, p]));
+  const grants = access.grants.map((g) => ({ ...g }));
+  const restricted = access.internal_access === "restricted";
+  const visibilityControl = canEdit
+    ? `<fieldset class="access-visibility"><legend>Who on your team can see this project</legend>
+<label class="radio-row"><input type="radio" name="internal-access" value="all" ${restricted ? "" : "checked"}><span><strong>All team members</strong><small>Everyone on your team can open this project.</small></span></label>
+<label class="radio-row"><input type="radio" name="internal-access" value="restricted" ${restricted ? "checked" : ""}><span><strong>Only people you add</strong><small>Team members need to be added below to see this project.</small></span></label></fieldset>`
+    : `<p class="muted">${restricted ? "Only added members can see this project." : "Everyone on your team can see this project."}</p>`;
+  section.innerHTML =
+    `<h2>Access</h2>${visibilityControl}<div id="grant-list"></div>${canEdit ? `<div class="access-add"><label for="grant-add">Add a team member</label><div class="settings-row"><select id="grant-add"><option value="">Choose someone…</option>${participants.filter((p) => !grants.some((g) => g.membership_id === p.membership_id)).map((p) => `<option value="${esc(p.membership_id)}">${esc(p.name || p.email)}</option>`).join("")}</select><button class="button" id="grant-add-btn" type="button">Add</button></div></div>` : ""}<div class="access-actions">${canEdit ? '<button class="button primary" id="access-save">Save access</button>' : ""}<p id="access-message" role="status"></p></div>`;
+  const listEl = $("#grant-list");
+  function paintGrants() {
+    if (!grants.length) {
+      listEl.innerHTML = `<p class="muted grant-empty">${restrictedNow() ? "No one is added yet. Add team members so they can see this project." : "No individual access set."}</p>`;
+      return;
+    }
+    listEl.innerHTML =
+      `<ul class="access-list">${grants
+        .map((g, i) => {
+          const person = byId.get(g.membership_id);
+          const name = person ? person.name || person.email : g.membership_id;
+          const role = canEdit
+            ? `<select data-grant-role="${i}" aria-label="Access level for ${esc(name)}"><option value="participant" ${g.access === "participant" ? "selected" : ""}>Participant</option><option value="manager" ${g.access === "manager" ? "selected" : ""}>Manager</option></select>`
+            : `<small>${esc(ACCESS_LABELS[g.access] || g.access)}</small>`;
+          const remove = canEdit
+            ? `<button class="button quiet" data-grant-remove="${i}" aria-label="Remove ${esc(name)}">Remove</button>`
+            : "";
+          return `<li><span class="grant-name">${esc(name)}</span>${role}${remove}</li>`;
+        })
+        .join("")}</ul>`;
+    if (canEdit) {
+      listEl.querySelectorAll("[data-grant-role]").forEach((sel) => {
+        sel.onchange = () => {
+          grants[+sel.dataset.grantRole].access = sel.value;
+        };
+      });
+      listEl.querySelectorAll("[data-grant-remove]").forEach((btn) => {
+        btn.onclick = () => {
+          const i = +btn.dataset.grantRemove;
+          const person = byId.get(grants[i].membership_id);
+          const name = person ? person.name || person.email : grants[i].membership_id;
+          if (
+            confirm(
+              `Remove ${name} from this project? They’ll be signed out of it on their next action.`,
+            )
+          ) {
+            grants.splice(i, 1);
+            paintGrants();
+          }
+        };
+      });
+    }
+  }
+  function restrictedNow() {
+    const picked = section.querySelector('input[name="internal-access"]:checked');
+    return picked ? picked.value === "restricted" : restricted;
+  }
+  paintGrants();
+  if (!canEdit) return;
+  section.querySelectorAll('input[name="internal-access"]').forEach((r) => {
+    r.onchange = paintGrants;
+  });
+  $("#grant-add-btn").onclick = () => {
+    const sel = $("#grant-add");
+    const id = sel.value;
+    if (!id) return;
+    grants.push({ membership_id: id, access: "participant" });
+    sel.querySelector(`option[value="${CSS.escape(id)}"]`)?.remove();
+    sel.value = "";
+    paintGrants();
+  };
+  $("#access-save").onclick = async () => {
+    const button = $("#access-save"),
+      notice = $("#access-message");
+    button.disabled = true;
+    notice.textContent = "";
+    notice.className = "";
+    try {
+      await api(`/projects/${project.id}/access`, {
+        method: "PATCH",
+        body: {
+          expected_version: access.revision,
+          internal_access: restrictedNow() ? "restricted" : "all",
+          grants: grants.map((g) => ({
+            membership_id: g.membership_id,
+            access: g.access,
+          })),
+        },
+      });
+      toast("Access saved.");
+      projectAccess(project);
+    } catch (error) {
+      notice.className = "access-error";
+      notice.textContent = errorText(error);
+      if (error.code === "version_conflict") {
+        notice.textContent =
+          "Someone else changed this project’s access. Your edits are kept below — review them, then save again.";
+        try {
+          access = await api(`/projects/${project.id}/access`);
         } catch (refreshError) {
           notice.textContent = errorText(refreshError);
         }

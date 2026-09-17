@@ -83,6 +83,113 @@ if (invite)
       invite.disabled = false;
     }
   };
+async function v1(path, { method = "GET", body, idempotencyKey } = {}) {
+  const headers = { "X-CSRF-Token": csrf, "X-Via": "ui" };
+  if (body) headers["Content-Type"] = "application/json";
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch("/api/v1" + path, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    const error = new Error(
+      data.error && data.error.fields && Object.keys(data.error.fields).length
+        ? Object.values(data.error.fields).join(" ")
+        : data.error
+          ? data.error.message
+          : "Something went wrong.",
+    );
+    error.code = data.error && data.error.code;
+    throw error;
+  }
+  return data;
+}
+bindForm("#create-workspace", async (data) => {
+  const message = document.querySelector("#create-workspace-message");
+  await v1("/tenants", {
+    method: "POST",
+    body: { name: data.get("name"), timezone: data.get("timezone") },
+    idempotencyKey: crypto.randomUUID(),
+  });
+  message.textContent = "Workspace created. Opening it…";
+  // Tenant creation switches the session and rotates CSRF; reload to pick it up.
+  location.assign("/");
+});
+const memberList = document.querySelector("#member-list");
+const memberNotice = document.querySelector("#member-message");
+if (memberList) {
+  async function patchMember(id, changes, extra = {}) {
+    const holder = memberList.querySelector(`[data-member-revision="${id}"]`);
+    const revision = Number(holder.dataset.revision);
+    memberNotice.textContent = "";
+    memberNotice.className = "";
+    try {
+      const result = await v1("/memberships/" + id, {
+        method: "PATCH",
+        body: { expected_version: revision, ...changes, ...extra },
+      });
+      holder.dataset.revision = result.revision;
+      memberNotice.textContent = "Saved. Affected sessions were signed out.";
+      return result;
+    } catch (error) {
+      memberNotice.className = "form-error";
+      if (error.code === "version_conflict") {
+        memberNotice.textContent =
+          "This person’s access changed elsewhere. Reload to see the current state, then try again.";
+      } else if (error.code === "last_admin") {
+        memberNotice.textContent =
+          "This is the last admin. Make someone else an admin first.";
+      } else {
+        memberNotice.textContent = error.message;
+      }
+      throw error;
+    }
+  }
+  memberList.querySelectorAll("[data-member-role]").forEach((sel) => {
+    let previous = sel.value;
+    sel.onchange = async () => {
+      sel.disabled = true;
+      try {
+        await patchMember(sel.dataset.memberRole, {
+          role: sel.value,
+          reason: "Role changed from workspace settings",
+        });
+        previous = sel.value;
+      } catch {
+        sel.value = previous; // preserve the real state on failure
+      } finally {
+        sel.disabled = false;
+      }
+    };
+  });
+  memberList.querySelectorAll("[data-member-status]").forEach((btn) => {
+    btn.onclick = async () => {
+      const suspend = btn.dataset.status !== "suspended";
+      if (
+        suspend &&
+        !confirm(
+          "Suspend this person? They’ll be signed out and can’t access the workspace until reactivated.",
+        )
+      )
+        return;
+      btn.disabled = true;
+      try {
+        await patchMember(btn.dataset.memberStatus, {
+          status: suspend ? "suspended" : "active",
+          reason: "Status changed from workspace settings",
+        });
+        btn.dataset.status = suspend ? "suspended" : "active";
+        btn.textContent = suspend ? "Reactivate" : "Suspend";
+      } catch {
+        /* notice already shown; leave control as-is */
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  });
+}
 for (const button of document.querySelectorAll(
   "[data-revoke-token], [data-revoke-invite], [data-remove-member]",
 )) {
