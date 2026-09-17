@@ -11,7 +11,7 @@ from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def now():
@@ -35,7 +35,42 @@ class Error(Exception):
         }
 
 
+def validate_migration(connection, target):
+    """Check shared migration invariants before either store advances its version."""
+    if target == 5:
+        bad = connection.execute(
+            "SELECT COUNT(*) FROM tasks t LEFT JOIN board_columns b ON b.id=t.column_id "
+            "WHERE b.id IS NULL OR b.project_id!=t.project_id OR b.archived_at IS NOT NULL "
+            "OR NOT EXISTS(SELECT 1 FROM json_each(b.allowed_phases_json) WHERE value=t.status)"
+        ).fetchone()[0]
+        if bad:
+            raise Error(
+                422,
+                "migration_validation",
+                f"Migration failed: {bad} tasks have invalid columns.",
+            )
+
+
 MIGRATIONS = {
+    5: [
+        "CREATE TABLE board_columns (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL REFERENCES projects(id), name TEXT NOT NULL, allowed_phases_json TEXT NOT NULL, sort_key INTEGER NOT NULL, wip_limit INTEGER, archived_at TEXT, version INTEGER NOT NULL DEFAULT 1)",
+        "CREATE TABLE board_phase_defaults (project_id INTEGER NOT NULL REFERENCES projects(id), phase TEXT NOT NULL CHECK(phase IN ('backlog','in_progress','review','done')), column_id INTEGER NOT NULL REFERENCES board_columns(id), PRIMARY KEY(project_id, phase))",
+        "CREATE TABLE project_board_configurations (project_id INTEGER PRIMARY KEY REFERENCES projects(id), version INTEGER NOT NULL DEFAULT 1)",
+        "ALTER TABLE tasks ADD COLUMN column_id INTEGER REFERENCES board_columns(id)",
+        "CREATE INDEX board_columns_project ON board_columns(project_id, archived_at, sort_key)",
+        "CREATE INDEX tasks_column ON tasks(project_id, column_id, archived_at, position, id)",
+        "INSERT OR IGNORE INTO project_board_configurations(project_id, version) SELECT id, 1 FROM projects",
+        "INSERT INTO board_columns(project_id, name, allowed_phases_json, sort_key, wip_limit, archived_at, version) SELECT id, 'Backlog', '[\"backlog\"]', 0, NULL, NULL, 1 FROM projects WHERE NOT EXISTS (SELECT 1 FROM board_columns WHERE project_id=projects.id)",
+        "INSERT INTO board_columns(project_id, name, allowed_phases_json, sort_key, wip_limit, archived_at, version) SELECT id, 'In progress', '[\"in_progress\"]', 1, NULL, NULL, 1 FROM projects WHERE NOT EXISTS (SELECT 1 FROM board_columns WHERE project_id=projects.id AND name='In progress')",
+        "INSERT INTO board_columns(project_id, name, allowed_phases_json, sort_key, wip_limit, archived_at, version) SELECT id, 'Review', '[\"review\"]', 2, NULL, NULL, 1 FROM projects WHERE NOT EXISTS (SELECT 1 FROM board_columns WHERE project_id=projects.id AND name='Review')",
+        "INSERT INTO board_columns(project_id, name, allowed_phases_json, sort_key, wip_limit, archived_at, version) SELECT id, 'Done', '[\"done\"]', 3, NULL, NULL, 1 FROM projects WHERE NOT EXISTS (SELECT 1 FROM board_columns WHERE project_id=projects.id AND name='Done')",
+        "INSERT OR IGNORE INTO board_phase_defaults(project_id, phase, column_id) SELECT c.project_id, 'backlog', c.id FROM board_columns c WHERE c.name = 'Backlog' AND c.archived_at IS NULL",
+        "INSERT OR IGNORE INTO board_phase_defaults(project_id, phase, column_id) SELECT c.project_id, 'in_progress', c.id FROM board_columns c WHERE c.name = 'In progress' AND c.archived_at IS NULL",
+        "INSERT OR IGNORE INTO board_phase_defaults(project_id, phase, column_id) SELECT c.project_id, 'review', c.id FROM board_columns c WHERE c.name = 'Review' AND c.archived_at IS NULL",
+        "INSERT OR IGNORE INTO board_phase_defaults(project_id, phase, column_id) SELECT c.project_id, 'done', c.id FROM board_columns c WHERE c.name = 'Done' AND c.archived_at IS NULL",
+        "UPDATE tasks SET column_id = (SELECT d.column_id FROM board_phase_defaults d WHERE d.project_id = tasks.project_id AND d.phase = tasks.status) WHERE column_id IS NULL",
+        "CREATE TRIGGER project_board_create AFTER INSERT ON projects BEGIN INSERT INTO project_board_configurations(project_id, version) VALUES(NEW.id, 1); INSERT INTO board_columns(project_id, name, allowed_phases_json, sort_key, wip_limit, archived_at, version) VALUES(NEW.id, 'Backlog', '[\"backlog\"]', 0, NULL, NULL, 1); INSERT INTO board_columns(project_id, name, allowed_phases_json, sort_key, wip_limit, archived_at, version) VALUES(NEW.id, 'In progress', '[\"in_progress\"]', 1, NULL, NULL, 1); INSERT INTO board_columns(project_id, name, allowed_phases_json, sort_key, wip_limit, archived_at, version) VALUES(NEW.id, 'Review', '[\"review\"]', 2, NULL, NULL, 1); INSERT INTO board_columns(project_id, name, allowed_phases_json, sort_key, wip_limit, archived_at, version) VALUES(NEW.id, 'Done', '[\"done\"]', 3, NULL, NULL, 1); INSERT INTO board_phase_defaults(project_id, phase, column_id) SELECT NEW.id, 'backlog', id FROM board_columns WHERE project_id=NEW.id AND name='Backlog'; INSERT INTO board_phase_defaults(project_id, phase, column_id) SELECT NEW.id, 'in_progress', id FROM board_columns WHERE project_id=NEW.id AND name='In progress'; INSERT INTO board_phase_defaults(project_id, phase, column_id) SELECT NEW.id, 'review', id FROM board_columns WHERE project_id=NEW.id AND name='Review'; INSERT INTO board_phase_defaults(project_id, phase, column_id) SELECT NEW.id, 'done', id FROM board_columns WHERE project_id=NEW.id AND name='Done'; END",
+    ],
     4: [
         "CREATE TABLE project_access (project_id INTEGER PRIMARY KEY REFERENCES projects(id), internal_access TEXT NOT NULL DEFAULT 'all' CHECK(internal_access IN ('all','restricted')), customer_id TEXT, revision INTEGER NOT NULL DEFAULT 1)",
         "INSERT INTO project_access(project_id) SELECT id FROM projects",
@@ -117,6 +152,7 @@ class Store:
                     c.execute(
                         "INSERT INTO instance VALUES (?,?)", (str(uuid.uuid4()), now())
                     )
+                validate_migration(c, target)
                 c.execute(f"PRAGMA user_version={target}")
             c.commit()
 
