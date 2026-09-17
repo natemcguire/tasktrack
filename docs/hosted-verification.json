@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-16T22:35:38.482Z",
+  "checked_at": "2026-09-17T22:13:48.668Z",
   "runtime": "Cloudflare workerd / D1 / Durable Object SQLite / R2",
   "checks": [
     "Email-only signup; scanner-safe links are consumed once; each new account gets its own workspace",

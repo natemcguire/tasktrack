@@ -70,21 +70,35 @@ def error_page(message, status=400):
     )
 
 
+TIMEZONES = (
+    "UTC",
+    "America/New_York",
+    "America/Chicago",
+    "America/Denver",
+    "America/Los_Angeles",
+    "Europe/London",
+    "Europe/Berlin",
+    "Asia/Singapore",
+    "Australia/Sydney",
+)
+
+
 def account_page(identity, overview):
     csrf = esc(identity["csrf"])
     options = "".join(
         f'<option value="{esc(w["id"])}" {"selected" if w["id"] == identity["workspace_id"] else ""}>{esc(w["name"])}</option>'
         for w in overview["workspaces"]
     )
+    current_ws = next(
+        (w for w in overview["workspaces"] if w["id"] == identity["workspace_id"]),
+        None,
+    )
+    is_admin = bool(
+        current_ws
+        and current_ws.get("kind") == "internal"
+        and current_ws.get("access_role") == "admin"
+    )
     owner = identity["role"] == "owner"
-    members = ""
-    for member in overview["members"]:
-        remove = (
-            f'<button class="button quiet" data-remove-member="{esc(member["id"])}">Remove</button>'
-            if owner and member["role"] != "owner"
-            else ""
-        )
-        members += f"<li><span>{esc(member['email'])}<small>{esc(member['role'])}</small></span>{remove}</li>"
     tokens = "".join(
         f'<li><span>{esc(t["name"])}<small>{esc(t["actor"])} · expires {datetime.fromtimestamp(t["expires_at"], timezone.utc).date()}</small></span><button class="button quiet" data-revoke-token="{esc(t["id"])}">Revoke</button></li>'
         for t in overview["tokens"]
@@ -103,12 +117,54 @@ def account_page(identity, overview):
         f'<li><span>{esc(k["name"])}<small>Added {datetime.fromtimestamp(k["created_at"], timezone.utc).date()}</small></span><button class="button quiet" data-remove-passkey="{esc(k["id"])}">Remove passkey</button></li>'
         for k in overview["passkeys"]
     )
+    ROLE_LABELS = {"admin": "Admin", "billing": "Billing", "regular": "Member"}
+    member_rows = ""
+    for m in overview["members"]:
+        name = esc(m.get("name") or m["email"])
+        role = m.get("access_role") or m.get("role") or "regular"
+        kind = m.get("kind", "internal")
+        status = m.get("status", "active")
+        external = kind != "internal"
+        self_row = m.get("id") == identity["user_id"]
+        if is_admin and not external:
+            role_select = (
+                f'<select data-member-role="{esc(m["membership_id"])}" aria-label="Role for {name}">'
+                + "".join(
+                    f'<option value="{v}" {"selected" if v == role else ""}>{label}</option>'
+                    for v, label in ROLE_LABELS.items()
+                )
+                + "</select>"
+            )
+            status_btn = (
+                f'<button class="button quiet" data-member-status="{esc(m["membership_id"])}" data-status="{esc(status)}">{"Reactivate" if status == "suspended" else "Suspend"}</button>'
+            )
+            remove_btn = (
+                f'<button class="button quiet" data-remove-member="{esc(m["id"])}">Remove</button>'
+                if owner and not self_row
+                else ""
+            )
+            controls = f'<span data-member-revision="{esc(m["membership_id"])}" data-revision="{m["revision"]}">{role_select}{status_btn}{remove_btn}</span>'
+        else:
+            controls = f'<small>{esc(ROLE_LABELS.get(role, role))}{" · external" if external else ""}{" · suspended" if status == "suspended" else ""}</small>'
+        member_rows += f'<li data-member-row="{esc(m["membership_id"])}"><span>{name}<small>{esc(m["email"])}</small></span>{controls}</li>'
+
+    tz_options = "".join(f"<option>{esc(z)}</option>" for z in TIMEZONES)
+    create_workspace = f'''<section class="account-section"><h2>Create a workspace</h2><p class="muted">Start a separate, private workspace. You’ll be its admin.</p><form id="create-workspace"><label for="new-workspace-name">Name</label><input id="new-workspace-name" name="name" maxlength="80" placeholder="Acme Studio" required><label for="new-workspace-tz">Timezone</label><select id="new-workspace-tz" name="timezone">{tz_options}</select><button class="button primary">Create workspace</button></form><p id="create-workspace-message" role="status"></p></section>'''
+
+    members_admin = (
+        f'''<section class="account-section"><h2>Team</h2><p class="muted">Set who administers this workspace and who can see billing. Changing a role signs the affected person out.</p><ul class="account-list" id="member-list">{member_rows}</ul><p id="member-message" role="status"></p></section>'''
+        if is_admin
+        else f'''<section class="account-section"><h2>Team</h2><ul class="account-list">{member_rows}</ul></section>'''
+    )
+
     content = f'''<main class="account-content"><a href="/">← Back to your board</a><h1>Your workspace</h1>
 <p class="muted">Signed in as {esc(identity["email"])}</p>
 <section class="account-section"><h2>Workspace</h2><form method="post" action="/account/switch"><input type="hidden" name="csrf" value="{csrf}"><label for="workspace">Open workspace</label><div class="account-row"><select id="workspace" name="workspace_id">{options}</select><button class="button">Open</button></div></form>
 {f'<form id="rename-workspace"><label for="workspace-name">Workspace name</label><div class="account-row"><input id="workspace-name" name="name" value="{esc(identity["workspace_name"])}" maxlength="80" required><button class="button">Save name</button></div></form>' if owner else ""}</section>
+{create_workspace}
+{members_admin}
 <section class="account-section"><h2>Passkeys</h2><p class="muted">Sign in with Touch ID, Face ID or your device’s screen lock. Your email code remains available for recovery.</p><ul class="account-list">{passkey_rows or "<li>No passkeys yet.</li>"}</ul><form id="add-passkey" hidden><label for="passkey-name">Passkey name</label><div class="account-row"><input id="passkey-name" maxlength="80" value="My passkey" required><button class="button">Add passkey</button></div></form><p id="passkey-message" role="status"></p></section>
-<section class="account-section"><h2>People</h2><ul class="account-list">{members}</ul>{'<p class="small muted">An invitation lets one person join this workspace. It expires in 48 hours.</p><button class="button" id="create-invite">Create invitation link</button><div id="invite-result"></div><ul class="account-list">' + invites + "</ul>" if owner else ""}</section>
+{'<section class="account-section"><h2>Invitations</h2><p class="small muted">An invitation lets one person join this workspace. It expires in 48 hours.</p><button class="button" id="create-invite">Create invitation link</button><div id="invite-result"></div><ul class="account-list">' + invites + "</ul></section>" if owner else ""}
 <section class="account-section"><h2>Agent access</h2><p class="muted">Give an agent access to this workspace from the CLI or API. Tokens expire after 90 days.</p>
 {'<form id="create-token"><label for="token-name">Agent name</label><div class="account-row"><input id="token-name" name="name" placeholder="codex" maxlength="60" required><button class="button">Create token</button></div></form><div id="token-result"></div>' if owner else '<p class="small">Ask the workspace owner to create an agent token.</p>'}<ul class="account-list">{tokens or "<li>No tokens yet.</li>"}</ul></section>
 <form method="post" action="/auth/logout"><input type="hidden" name="csrf" value="{csrf}"><button class="button">Sign out</button></form><p id="account-message" role="status"></p></main>'''
