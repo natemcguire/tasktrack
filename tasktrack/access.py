@@ -130,6 +130,9 @@ class Access:
         parts = path.strip("/").split("/")[2:]
         if parts == ["projects"] and method == "POST":
             return self.require(c, "project.create")
+        if len(parts) == 3 and parts[0] == "projects" and parts[2] == "columns":
+            project = service.project(c, parts[1])
+            return self.require(c, "workflow.manage", project["id"])
         if len(parts) == 3 and parts[0] == "projects" and parts[2] == "access":
             self.require(c, "identity.manage")
         if len(parts) >= 2 and parts[0] == "projects":
@@ -153,9 +156,28 @@ class Access:
                 "comments": "notes.write",
                 "attachments": "notes.write",
             }.get(action, "work.edit")
-            if action == "move" and body.get("status") in {"done", "review"}:
+            if action == "move":
+                phase = body.get("phase") or body.get("status")
+                if phase is None and type(body.get("column_id")) is int:
+                    column = c.execute(
+                        "SELECT allowed_phases_json FROM board_columns WHERE id=? AND project_id=? AND archived_at IS NULL",
+                        (body["column_id"], task["project_id"]),
+                    ).fetchone()
+                    if column:
+                        phases = json.loads(column["allowed_phases_json"])
+                        phase = (
+                            task["status"]
+                            if task["status"] in phases
+                            else phases[0]
+                            if len(phases) == 1
+                            else None
+                        )
                 capability = (
-                    "work.accept" if body["status"] == "done" else "work.execute"
+                    "work.accept"
+                    if phase == "done"
+                    else "work.execute"
+                    if phase in {"review", "in_progress"}
+                    else "work.edit"
                 )
             return self.require(c, capability, task["project_id"])
         raise Error(404, "not_found", "This action is unavailable.")

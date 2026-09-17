@@ -23,23 +23,28 @@ TASK_FIELDS = {
     "thread_links",
 }
 ACTION_FIELDS = {
-    "claim": set(),
+    "claim": {"wip_override_reason"},
     "resume": set(),
     "checkpoint": {"checkpoint"},
     "handoff": {"checkpoint", "to"},
     "reassign": {"assignee", "reason"},
     "block": {"reason"},
     "unblock": {"reason"},
-    "submit": {"result"},
+    "submit": {"result", "wip_override_reason"},
     "complete": {"acceptance_note"},
-    "request-changes": {"reason"},
-    "reopen": {"reason", "reopen_parent"},
+    "request-changes": {"reason", "wip_override_reason"},
+    "reopen": {"reason", "reopen_parent", "wip_override_reason"},
     "archive": {"reason"},
-    "restore": {"reason"},
+    "restore": {"reason", "wip_override_reason"},
+    "backlog": {"reason", "checkpoint", "wip_override_reason"},
     "move": {
         "status",
+        "phase",
+        "column_id",
         "before_id",
+        "after_id",
         "reason",
+        "wip_override_reason",
         "checkpoint",
         "result",
         "acceptance_note",
@@ -304,6 +309,7 @@ class Service:
                     "title",
                     "kind",
                     "status",
+                    "column_id",
                     "assignee",
                     "priority",
                     "version",
@@ -379,6 +385,14 @@ class Service:
             session = string(session, "session", True, 200)
         if not isinstance(body, dict):
             raise Error(400, "invalid_body", "Expected a JSON object.")
+        if "wip_override_reason" in body:
+            string(body["wip_override_reason"], "wip_override_reason", True, 2000)
+        if (
+            body.get("phase") is not None
+            and body.get("status") is not None
+            and body["phase"] != body["status"]
+        ):
+            invalid("phase", "Use the same phase and status, or supply only one.")
         if upload is not None:
             if len(upload) > 10 * 1024 * 1024:
                 raise Error(413, "upload_too_large", "Files must be 10 MiB or smaller.")
@@ -436,6 +450,13 @@ class Service:
             return 200, self.access.update_project_access(
                 self, c, parts[1], body, context
             )
+        if (
+            len(parts) == 3
+            and parts[0] == "projects"
+            and parts[2] == "columns"
+            and method == "PUT"
+        ):
+            return 200, self.update_project_columns(c, parts[1], body, context)
         if parts == ["projects"] and method == "POST":
             return 201, self.write_project(c, None, body, context)
         if len(parts) == 2 and parts[0] == "projects" and method == "PATCH":
@@ -543,6 +564,518 @@ class Service:
             {"before": previous, "after": result},
         )
         return result
+
+    def project_columns(self, c, identifier):
+        project = self.project(c, identifier)
+        config_row = c.execute(
+            "SELECT version FROM project_board_configurations WHERE project_id=?",
+            (project["id"],),
+        ).fetchone()
+        version = config_row["version"] if config_row else 1
+        active_columns = [
+            dict(r)
+            for r in c.execute(
+                "SELECT * FROM board_columns WHERE project_id=? AND archived_at IS NULL ORDER BY sort_key, id",
+                (project["id"],),
+            )
+        ]
+        if self.access and self.access.external:
+            return {
+                "project_id": project["id"],
+                "version": version,
+                "columns": [
+                    {
+                        "id": col["id"],
+                        "name": col["name"],
+                        "sort_key": col["sort_key"],
+                    }
+                    for col in active_columns
+                ],
+            }
+        defaults_rows = c.execute(
+            "SELECT phase, column_id FROM board_phase_defaults WHERE project_id=?",
+            (project["id"],),
+        ).fetchall()
+        phase_defaults = {r["phase"]: r["column_id"] for r in defaults_rows}
+        counts_rows = c.execute(
+            "SELECT column_id, COUNT(*) FROM tasks WHERE project_id=? AND archived_at IS NULL GROUP BY column_id",
+            (project["id"],),
+        ).fetchall()
+        task_counts = dict(counts_rows)
+        return {
+            "project_id": project["id"],
+            "version": version,
+            "columns": [
+                {
+                    "id": col["id"],
+                    "project_id": col["project_id"],
+                    "name": col["name"],
+                    "allowed_phases": json.loads(col["allowed_phases_json"]),
+                    "sort_key": col["sort_key"],
+                    "wip_limit": col["wip_limit"],
+                    "task_count": task_counts.get(col["id"], 0),
+                    "version": col["version"],
+                }
+                for col in active_columns
+            ],
+            "phase_defaults": phase_defaults,
+        }
+
+    def enforce_column_phase_wip(
+        self, c, project_id, before_task, after_task, body, context
+    ):
+        dest_col_id = after_task.get("column_id")
+        if dest_col_id is None:
+            invalid("column_id", "Destination column must be specified.")
+        col_row = c.execute(
+            "SELECT * FROM board_columns WHERE id=? AND project_id=? AND archived_at IS NULL",
+            (dest_col_id, project_id),
+        ).fetchone()
+        if not col_row:
+            raise Error(
+                404,
+                "not_found",
+                f"Column {dest_col_id} does not exist or is archived.",
+            )
+        dest_col = dict(col_row)
+        allowed_phases = json.loads(dest_col["allowed_phases_json"])
+        target_phase = after_task.get("status")
+        if not target_phase or target_phase not in STATUSES:
+            invalid("phase", f"Invalid phase '{target_phase}'.")
+        if target_phase not in allowed_phases:
+            invalid(
+                "phase",
+                f"Column '{dest_col['name']}' does not allow phase '{target_phase}'. Allowed: {', '.join(allowed_phases)}.",
+            )
+
+        entering = (
+            before_task is None
+            or before_task.get("archived_at") is not None
+            or before_task.get("column_id") != dest_col_id
+        )
+        if (
+            entering
+            and dest_col.get("wip_limit") is not None
+            and target_phase != "done"
+        ):
+            current_wip = c.execute(
+                "SELECT COUNT(*) FROM tasks WHERE column_id=? AND archived_at IS NULL",
+                (dest_col_id,),
+            ).fetchone()[0]
+            if current_wip >= dest_col["wip_limit"]:
+                has_override_role = (
+                    self.access.allowed(c, "workflow.manage", project_id)
+                    if self.access
+                    else True
+                )
+                override_reason = (body.get("wip_override_reason") or "").strip()
+                if not has_override_role:
+                    raise Error(
+                        409,
+                        "wip_limit_exceeded",
+                        f"Column '{dest_col['name']}' has reached its WIP limit of {dest_col['wip_limit']}. Only a project manager with an override reason can exceed the limit.",
+                        {
+                            "wip_limit": dest_col["wip_limit"],
+                            "current_count": current_wip,
+                        },
+                    )
+                if not override_reason:
+                    raise Error(
+                        409,
+                        "wip_override_required",
+                        f"Column '{dest_col['name']}' has reached its WIP limit of {dest_col['wip_limit']}. Provide an explicit override reason to proceed.",
+                        {
+                            "wip_limit": dest_col["wip_limit"],
+                            "current_count": current_wip,
+                        },
+                    )
+        return dest_col
+
+    def update_project_columns(self, c, identifier, body, context):
+        project = self.project(c, identifier)
+        if self.access:
+            self.access.require(c, "workflow.manage", project["id"])
+        previous = self.project_columns(c, identifier)
+
+        expected_version = integer(body.get("expected_version"), "expected_version")
+        if expected_version != previous["version"]:
+            raise Error(
+                409,
+                "version_conflict",
+                "Board configuration changed. Reload and try again.",
+                current_version=previous["version"],
+            )
+
+        fields(
+            body,
+            {
+                "expected_version",
+                "columns",
+                "phase_defaults",
+                "retirement_mapping",
+                "retirements",
+                "wip_override_reason",
+            },
+        )
+        raw_columns = body.get("columns")
+        if not isinstance(raw_columns, list) or not 1 <= len(raw_columns) <= 50:
+            invalid("columns", "Provide between 1 and 50 columns.")
+
+        existing_active = {col["id"]: col for col in previous["columns"]}
+        seen_ids = set()
+        names_seen = set()
+        validated_columns = []
+        all_allowed_phases = set()
+
+        for idx, col in enumerate(raw_columns):
+            if not isinstance(col, dict):
+                invalid("columns", "Each column must be a JSON object.")
+            fields(
+                col,
+                {
+                    "id",
+                    "name",
+                    "allowed_phases",
+                    "sort_key",
+                    "wip_limit",
+                    "version",
+                    "project_id",
+                    "task_count",
+                },
+            )
+            name = string(col.get("name"), f"columns[{idx}].name", True, 60)
+            if name.casefold() in names_seen:
+                invalid(
+                    "columns",
+                    f"Column name '{name}' is duplicated. Names must be case-insensitive unique.",
+                )
+            names_seen.add(name.casefold())
+
+            allowed_phases = col.get("allowed_phases")
+            if not isinstance(allowed_phases, list) or not allowed_phases:
+                invalid(
+                    "allowed_phases",
+                    f"Column '{name}' must allow at least one phase.",
+                )
+            for p in allowed_phases:
+                if p not in STATUSES:
+                    invalid(
+                        "allowed_phases",
+                        f"Invalid phase '{p}' in column '{name}'. Choose from: {', '.join(STATUSES)}.",
+                    )
+            allowed_phases_unique = sorted(
+                set(allowed_phases), key=lambda x: STATUSES.index(x)
+            )
+            all_allowed_phases.update(allowed_phases_unique)
+
+            wip_limit = col.get("wip_limit")
+            if wip_limit is not None:
+                integer(wip_limit, f"columns[{idx}].wip_limit")
+                if wip_limit < 0:
+                    invalid(
+                        f"columns[{idx}].wip_limit", "WIP limit must be non-negative."
+                    )
+
+            col_id = col.get("id")
+            if col_id is not None:
+                integer(col_id, f"columns[{idx}].id")
+                if col_id in seen_ids:
+                    invalid(
+                        "columns",
+                        f"Duplicate column ID {col_id} in configuration.",
+                    )
+                seen_ids.add(col_id)
+                if col_id not in existing_active:
+                    invalid(
+                        "columns",
+                        f"Column ID {col_id} is not an active column in this project.",
+                    )
+
+            sort_key = col.get("sort_key", idx)
+            if type(sort_key) is not int:
+                sort_key = idx
+
+            validated_columns.append(
+                {
+                    "id": col_id,
+                    "name": name,
+                    "allowed_phases": allowed_phases_unique,
+                    "sort_key": sort_key,
+                    "wip_limit": wip_limit,
+                }
+            )
+
+        missing_phases = set(STATUSES) - all_allowed_phases
+        if missing_phases:
+            invalid(
+                "columns",
+                f"All phases must remain reachable. Missing: {', '.join(sorted(missing_phases))}.",
+            )
+
+        user_defaults = body.get("phase_defaults") or {}
+        resolved_defaults = {}
+        for phase in STATUSES:
+            target_col = None
+            if phase in user_defaults:
+                val = user_defaults[phase]
+                for vcol in validated_columns:
+                    if (vcol["id"] is not None and vcol["id"] == val) or vcol[
+                        "name"
+                    ] == val:
+                        target_col = vcol
+                        break
+                if not target_col:
+                    invalid(
+                        "phase_defaults",
+                        f"Phase '{phase}' default references unknown column '{val}'.",
+                    )
+            else:
+                prev_col_id = previous["phase_defaults"].get(phase)
+                candidate = next(
+                    (
+                        c
+                        for c in validated_columns
+                        if c["id"] == prev_col_id and phase in c["allowed_phases"]
+                    ),
+                    None,
+                )
+                if candidate:
+                    target_col = candidate
+                else:
+                    candidates = [
+                        c for c in validated_columns if phase in c["allowed_phases"]
+                    ]
+                    if candidates:
+                        target_col = candidates[0]
+                    else:
+                        invalid("phase_defaults", f"No column allows phase '{phase}'.")
+            if phase not in target_col["allowed_phases"]:
+                invalid(
+                    "phase_defaults",
+                    f"Default column '{target_col['name']}' for phase '{phase}' does not allow that phase.",
+                )
+            resolved_defaults[phase] = target_col
+
+        # Validate that retained active columns do not invalidate any current occupants
+        for vcol in validated_columns:
+            if vcol["id"] is not None:
+                tasks_in_col = c.execute(
+                    "SELECT id, status FROM tasks WHERE column_id=? AND archived_at IS NULL",
+                    (vcol["id"],),
+                ).fetchall()
+                bad_tasks = [
+                    t for t in tasks_in_col if t["status"] not in vcol["allowed_phases"]
+                ]
+                if bad_tasks:
+                    disallowed = sorted(set(t["status"] for t in bad_tasks))
+                    raise Error(
+                        422,
+                        "invalid_column_phases",
+                        f"Column '{vcol['name']}' has active tasks with phase(s) ({', '.join(disallowed)}) no longer allowed by this column.",
+                        {
+                            "column_id": vcol["id"],
+                            "disallowed_phases": disallowed,
+                            "task_count": len(bad_tasks),
+                        },
+                    )
+
+        kept_ids = {c["id"] for c in validated_columns if c["id"] is not None}
+        retired_ids = set(existing_active.keys()) - kept_ids
+        raw_retirement_map = body.get("retirement_mapping") or body.get("retirements")
+        if raw_retirement_map is not None and not isinstance(raw_retirement_map, dict):
+            invalid("retirement_mapping", "retirement_mapping must be a dictionary.")
+        retirement_mapping = raw_retirement_map or {}
+
+        for k in retirement_mapping:
+            try:
+                k_int = int(k)
+            except (ValueError, TypeError):
+                invalid(
+                    "retirement_mapping",
+                    f"Invalid column ID in retirement_mapping: '{k}'.",
+                )
+            if k_int not in retired_ids and k_int not in existing_active:
+                invalid(
+                    "retirement_mapping",
+                    f"Column ID {k} in retirement_mapping is not a column in this project.",
+                )
+
+        tasks_to_migrate = []
+        migrating_counts = {}
+
+        blockers = []
+        for ret_id in retired_ids:
+            tasks_in_col = [
+                self.public_task(c, r[0])
+                for r in c.execute(
+                    "SELECT id FROM tasks WHERE column_id=? AND archived_at IS NULL",
+                    (ret_id,),
+                ).fetchall()
+            ]
+            if not tasks_in_col:
+                continue
+
+            target_spec = (
+                retirement_mapping.get(str(ret_id))
+                if str(ret_id) in retirement_mapping
+                else retirement_mapping.get(ret_id)
+            )
+            if target_spec is None:
+                raise Error(
+                    422,
+                    "occupied_column_retirement",
+                    f"Column '{existing_active[ret_id]['name']}' contains {len(tasks_in_col)} active task(s). Specify a replacement column in retirement_mapping.",
+                    {"column_id": ret_id, "task_count": len(tasks_in_col)},
+                )
+
+            if isinstance(target_spec, dict):
+                target_ref = (
+                    target_spec.get("column_id")
+                    or target_spec.get("id")
+                    or target_spec.get("name")
+                )
+            else:
+                target_ref = target_spec
+
+            replacement_col = next(
+                (
+                    col
+                    for col in validated_columns
+                    if (col["id"] is not None and col["id"] == target_ref)
+                    or col["name"] == target_ref
+                ),
+                None,
+            )
+            if not replacement_col:
+                invalid(
+                    "retirement_mapping",
+                    f"Replacement column '{target_ref}' for retired column {ret_id} not found in active columns.",
+                )
+
+            for task in tasks_in_col:
+                if task["status"] not in replacement_col["allowed_phases"]:
+                    blockers.append(
+                        f"{task['reference']}: Replacement column '{replacement_col['name']}' does not allow phase '{task['status']}'. Perform explicit task transition before retiring column."
+                    )
+                    continue
+                tasks_to_migrate.append((task, replacement_col))
+                migrating_counts[replacement_col["name"]] = (
+                    migrating_counts.get(replacement_col["name"], 0) + 1
+                )
+
+        if blockers:
+            raise Error(
+                422,
+                "retirement_blocked",
+                "Cannot retire occupied columns: cross-phase relocation is not supported during bulk retirement. Perform explicit task transitions first.",
+                {"blockers": blockers[:50]},
+                blockers=blockers[:50],
+            )
+
+        # Enforce destination capacity atomically
+        for vcol in validated_columns:
+            if vcol.get("wip_limit") is not None:
+                existing_count = (
+                    c.execute(
+                        "SELECT COUNT(*) FROM tasks WHERE column_id=? AND archived_at IS NULL",
+                        (vcol["id"],),
+                    ).fetchone()[0]
+                    if vcol["id"] is not None
+                    else 0
+                )
+                incoming_count = migrating_counts.get(vcol["name"], 0)
+                total_projected = existing_count + incoming_count
+                if total_projected > vcol["wip_limit"]:
+                    override_reason = (body.get("wip_override_reason") or "").strip()
+                    if not override_reason:
+                        raise Error(
+                            409,
+                            "wip_limit_exceeded",
+                            f"Replacement column '{vcol['name']}' would exceed its WIP limit of {vcol['wip_limit']} with {total_projected} tasks. Provide wip_override_reason to proceed.",
+                            {
+                                "column": vcol["name"],
+                                "wip_limit": vcol["wip_limit"],
+                                "projected_count": total_projected,
+                            },
+                        )
+
+        timestamp = now()
+        for ret_id in retired_ids:
+            c.execute(
+                "UPDATE board_columns SET archived_at=?, version=version+1 WHERE id=?",
+                (timestamp, ret_id),
+            )
+
+        for vcol in validated_columns:
+            if vcol["id"] is None:
+                new_id = c.execute(
+                    "INSERT INTO board_columns(project_id, name, allowed_phases_json, sort_key, wip_limit, version) VALUES (?,?,?,?,?,1)",
+                    (
+                        project["id"],
+                        vcol["name"],
+                        encode(vcol["allowed_phases"]),
+                        vcol["sort_key"],
+                        vcol["wip_limit"],
+                    ),
+                ).lastrowid
+                vcol["id"] = new_id
+            else:
+                c.execute(
+                    "UPDATE board_columns SET name=?, allowed_phases_json=?, sort_key=?, wip_limit=?, version=version+1 WHERE id=?",
+                    (
+                        vcol["name"],
+                        encode(vcol["allowed_phases"]),
+                        vcol["sort_key"],
+                        vcol["wip_limit"],
+                        vcol["id"],
+                    ),
+                )
+
+        c.execute(
+            "DELETE FROM board_phase_defaults WHERE project_id=?",
+            (project["id"],),
+        )
+        for phase, target_col in resolved_defaults.items():
+            c.execute(
+                "INSERT INTO board_phase_defaults(project_id, phase, column_id) VALUES (?,?,?)",
+                (project["id"], phase, target_col["id"]),
+            )
+
+        for task, replacement_col in tasks_to_migrate:
+            after = dict(task)
+            after["column_id"] = replacement_col["id"]
+            self.order(c, task, after, None, context)
+            self.save(
+                c,
+                task,
+                after,
+                "task.moved",
+                context,
+                {
+                    "reason": f"Migrated from retired column {task['column_id']}",
+                    "before_column_id": task["column_id"],
+                    "after_column_id": replacement_col["id"],
+                    "before_phase": task["status"],
+                    "after_phase": task["status"],
+                },
+            )
+
+        c.execute(
+            "UPDATE project_board_configurations SET version=version+1 WHERE project_id=?",
+            (project["id"],),
+        )
+
+        after_config = self.project_columns(c, identifier)
+        self.event(
+            c,
+            "project",
+            project["id"],
+            project["id"],
+            "board.columns_changed",
+            context,
+            {"before": previous, "after": after_config},
+        )
+        return after_config
 
     def task_metadata(self, c, data, project_id, kind, task_id=None):
         data["title"] = string(data.get("title", ""), "title", True, 120)
@@ -652,13 +1185,44 @@ class Service:
         )
 
     def create_task(self, c, body, context):
-        fields(body, TASK_FIELDS | {"project_id", "kind"})
+        fields(
+            body,
+            TASK_FIELDS | {"project_id", "kind", "column_id", "wip_override_reason"},
+        )
         project_id = integer(body.get("project_id"), "project_id")
         self.project(c, project_id)
         kind = body.get("kind", "task")
         if kind not in ("task", "epic"):
             invalid("kind", "kind must be task or epic.")
         data = self.task_metadata(c, dict(body), project_id, kind)
+        column_id = body.get("column_id")
+        if column_id is not None:
+            integer(column_id, "column_id")
+            col = c.execute(
+                "SELECT * FROM board_columns WHERE id=? AND project_id=? AND archived_at IS NULL",
+                (column_id, project_id),
+            ).fetchone()
+            if not col:
+                invalid("column_id", "Column does not exist in this project.")
+            if "backlog" not in json.loads(col["allowed_phases_json"]):
+                invalid(
+                    "column_id",
+                    "New tasks must start in a column allowing the backlog phase.",
+                )
+        else:
+            def_row = c.execute(
+                "SELECT column_id FROM board_phase_defaults WHERE project_id=? AND phase='backlog'",
+                (project_id,),
+            ).fetchone()
+            column_id = def_row[0] if def_row else None
+        self.enforce_column_phase_wip(
+            c,
+            project_id,
+            None,
+            {"column_id": column_id, "status": "backlog", "archived_at": None},
+            body,
+            context,
+        )
         timestamp = now()
         data.update(
             execution=None,
@@ -674,16 +1238,17 @@ class Service:
             updated_at=timestamp,
         )
         position = c.execute(
-            "SELECT COALESCE(MAX(position),0)+1024 FROM tasks WHERE project_id=? AND status='backlog'",
-            (project_id,),
+            "SELECT COALESCE(MAX(position),0)+1024 FROM tasks WHERE project_id=? AND column_id=?",
+            (project_id, column_id),
         ).fetchone()[0]
         stored = self.content(data)
         task_id = c.execute(
-            "INSERT INTO tasks(project_id,kind,parent_id,status,assignee,position,version,data) VALUES (?,?,?,'backlog',?,?,1,?)",
+            "INSERT INTO tasks(project_id,kind,parent_id,status,column_id,assignee,position,version,data) VALUES (?,?,?,'backlog',?,?,?,1,?)",
             (
                 project_id,
                 kind,
                 data["parent_id"],
+                column_id,
                 data["assignee"],
                 position,
                 encode(stored),
@@ -723,6 +1288,7 @@ class Service:
                 *self.content(after),
                 "parent_id",
                 "status",
+                "column_id",
                 "assignee",
                 "position",
                 "archived_at",
@@ -735,10 +1301,11 @@ class Service:
             updated_by=context["actor"], updated_via=context["via"], updated_at=now()
         )
         c.execute(
-            "UPDATE tasks SET parent_id=?,status=?,assignee=?,position=?,archived_at=?,version=version+1,data=? WHERE id=?",
+            "UPDATE tasks SET parent_id=?,status=?,column_id=?,assignee=?,position=?,archived_at=?,version=version+1,data=? WHERE id=?",
             (
                 after["parent_id"],
                 after["status"],
+                after.get("column_id", before.get("column_id")),
                 after["assignee"],
                 after["position"],
                 after["archived_at"],
@@ -747,6 +1314,13 @@ class Service:
             ),
         )
         result = self.public_task(c, before["id"])
+        event_detail = {"before": before, "after": result, **(detail or {})}
+        if before.get("column_id") != result.get("column_id"):
+            event_detail.setdefault("before_column_id", before.get("column_id"))
+            event_detail.setdefault("after_column_id", result.get("column_id"))
+        if before.get("status") != result.get("status"):
+            event_detail.setdefault("before_phase", before.get("status"))
+            event_detail.setdefault("after_phase", result.get("status"))
         self.event(
             c,
             "task",
@@ -754,7 +1328,7 @@ class Service:
             before["project_id"],
             operation,
             context,
-            {"before": before, "after": result, **(detail or {})},
+            event_detail,
         )
         return result
 
@@ -840,21 +1414,106 @@ class Service:
             invalid("archived_at", "Restore this task before changing it.")
         actual = action
         if action == "move":
+            column_id = body.get("column_id")
+            phase = body.get("phase")
             status = body.get("status")
-            if status not in STATUSES:
-                invalid("status", "Choose backlog, in_progress, review or done.")
-            actual = {
-                ("backlog", "in_progress"): "start",
-                ("in_progress", "review"): "submit",
-                ("review", "done"): "complete",
-                ("review", "in_progress"): "request-changes",
-                ("in_progress", "backlog"): "backlog",
-                ("review", "backlog"): "backlog",
-                ("done", "backlog"): "reopen",
-            }.get(
-                (task["status"], status),
-                "reorder" if status == task["status"] else "invalid",
-            )
+            before_id = body.get("before_id")
+            after_id = body.get("after_id")
+
+            if column_id is not None:
+                integer(column_id, "column_id")
+                col_row = c.execute(
+                    "SELECT * FROM board_columns WHERE id=?", (column_id,)
+                ).fetchone()
+                if not col_row or col_row["archived_at"]:
+                    raise Error(
+                        404,
+                        "not_found",
+                        f"Column {column_id} does not exist or is archived.",
+                    )
+                if col_row["project_id"] != task["project_id"]:
+                    invalid(
+                        "column_id",
+                        "Destination column must belong to the same project.",
+                    )
+                dest_col = dict(col_row)
+                allowed_phases = json.loads(dest_col["allowed_phases_json"])
+
+                target_phase = phase or status
+                if target_phase is not None:
+                    if target_phase not in STATUSES:
+                        invalid("phase", "Choose backlog, in_progress, review or done.")
+                    if target_phase not in allowed_phases:
+                        invalid(
+                            "phase",
+                            f"Column '{dest_col['name']}' does not allow phase '{target_phase}'. Allowed: {', '.join(allowed_phases)}.",
+                        )
+                else:
+                    if task["status"] in allowed_phases:
+                        target_phase = task["status"]
+                    elif len(allowed_phases) == 1:
+                        target_phase = allowed_phases[0]
+                    else:
+                        invalid(
+                            "phase",
+                            f"Column '{dest_col['name']}' allows multiple phases ({', '.join(allowed_phases)}). Specify 'phase' explicitly.",
+                        )
+            elif status is not None or phase is not None:
+                target_phase = status or phase
+                if target_phase not in STATUSES:
+                    invalid("status", "Choose backlog, in_progress, review or done.")
+                def_row = c.execute(
+                    "SELECT column_id FROM board_phase_defaults WHERE project_id=? AND phase=?",
+                    (task["project_id"], target_phase),
+                ).fetchone()
+                if not def_row:
+                    raise Error(
+                        422,
+                        "missing_phase_default",
+                        f"No default column configured for phase '{target_phase}'.",
+                    )
+                column_id = def_row[0]
+                col_row = c.execute(
+                    "SELECT * FROM board_columns WHERE id=?", (column_id,)
+                ).fetchone()
+                dest_col = dict(col_row)
+                allowed_phases = json.loads(dest_col["allowed_phases_json"])
+            elif before_id is not None or after_id is not None:
+                column_id = task["column_id"]
+                target_phase = task["status"]
+                col_row = c.execute(
+                    "SELECT * FROM board_columns WHERE id=?", (column_id,)
+                ).fetchone()
+                dest_col = dict(col_row)
+                allowed_phases = json.loads(dest_col["allowed_phases_json"])
+            else:
+                invalid("column_id", "Supply column_id or status.")
+
+            # Check permissions for target phase
+            if self.access:
+                if target_phase == "done":
+                    self.access.require(c, "work.accept", task["project_id"])
+                elif target_phase in {"review", "in_progress"}:
+                    self.access.require(c, "work.execute", task["project_id"])
+                else:
+                    self.access.require(c, "work.edit", task["project_id"])
+
+            after["column_id"] = column_id
+            if target_phase == task["status"]:
+                actual = "reorder"
+            else:
+                actual = {
+                    ("backlog", "in_progress"): "start",
+                    ("in_progress", "review"): "submit",
+                    ("review", "done"): "complete",
+                    ("review", "in_progress"): "request-changes",
+                    ("in_progress", "backlog"): "backlog",
+                    ("review", "backlog"): "backlog",
+                    ("done", "backlog"): "reopen",
+                }.get(
+                    (task["status"], target_phase),
+                    "invalid",
+                )
         allowed = {
             "start": {"backlog"},
             "claim": {"backlog", "in_progress"},
@@ -1047,62 +1706,184 @@ class Service:
                     )
                 after["archived_at"] = task["archived_at"] or now()
             else:
+                cur_col = (
+                    c.execute(
+                        "SELECT * FROM board_columns WHERE id=? AND project_id=? AND archived_at IS NULL",
+                        (task.get("column_id"), task["project_id"]),
+                    ).fetchone()
+                    if task.get("column_id")
+                    else None
+                )
+                if not cur_col or task["status"] not in json.loads(
+                    cur_col["allowed_phases_json"]
+                ):
+                    def_row = c.execute(
+                        "SELECT column_id FROM board_phase_defaults WHERE project_id=? AND phase=?",
+                        (task["project_id"], task["status"]),
+                    ).fetchone()
+                    after["column_id"] = def_row[0] if def_row else None
+                else:
+                    after["column_id"] = task["column_id"]
                 after["archived_at"] = None
         elif actual != "reorder":
             invalid("action", "Unsupported action.")
-        if task["status"] != after["status"] or (
-            action == "move" and "before_id" in body
+
+        if after.get("archived_at") is None:
+            cur_col_id = after.get("column_id") or task.get("column_id")
+            col_row = (
+                c.execute(
+                    "SELECT allowed_phases_json FROM board_columns WHERE id=? AND project_id=? AND archived_at IS NULL",
+                    (cur_col_id, task["project_id"]),
+                ).fetchone()
+                if cur_col_id
+                else None
+            )
+            allowed = json.loads(col_row[0]) if col_row else []
+            if after["status"] not in allowed:
+                def_row = c.execute(
+                    "SELECT column_id FROM board_phase_defaults WHERE project_id=? AND phase=?",
+                    (task["project_id"], after["status"]),
+                ).fetchone()
+                if def_row:
+                    after["column_id"] = def_row[0]
+            else:
+                after["column_id"] = cur_col_id
+
+            self.enforce_column_phase_wip(
+                c, task["project_id"], task, after, body, context
+            )
+
+        if (
+            task.get("column_id") != after.get("column_id")
+            or task["status"] != after["status"]
+            or task.get("archived_at") != after.get("archived_at")
+            or (
+                action == "move"
+                and (
+                    body.get("before_id") is not None
+                    or body.get("after_id") is not None
+                )
+            )
         ):
-            self.order(c, task, after, body.get("before_id"), context)
+            self.order(
+                c,
+                task,
+                after,
+                body.get("before_id"),
+                context,
+                after_anchor=body.get("after_id"),
+            )
         return self.save(
             c,
             task,
             after,
-            action if action != "move" else actual,
+            "task.moved" if action == "move" else actual,
             context,
-            {"reason": body.get("reason")},
+            {
+                "reason": body.get("reason"),
+                "wip_override_reason": body.get("wip_override_reason"),
+            },
         )
 
-    def order(self, c, before, after, anchor, context):
+    def order(self, c, before, after, anchor, context, after_anchor=None):
+        dest_col_id = after.get("column_id") or before.get("column_id")
         if anchor is not None:
             integer(anchor, "before_id")
-            target = self.task(c, anchor)
-            if (
-                anchor == before["id"]
-                or target["project_id"] != before["project_id"]
-                or target["status"] != after["status"]
-                or target["archived_at"]
-            ):
+            if anchor == before["id"]:
+                invalid("before_id", "The ordering anchor cannot be the task itself.")
+            target = c.execute(
+                "SELECT id, project_id, column_id, archived_at FROM tasks WHERE id=?",
+                (anchor,),
+            ).fetchone()
+            if not target:
+                raise Error(404, "not_found", f"Anchor task {anchor} not found.")
+            if target["project_id"] != before["project_id"]:
                 invalid(
                     "before_id",
-                    "The ordering anchor must be another unarchived task in this project and destination column.",
+                    "The ordering anchor must belong to the same project.",
                 )
+            if target["archived_at"]:
+                invalid("before_id", "The ordering anchor cannot be an archived task.")
+            if target["column_id"] != dest_col_id:
+                invalid(
+                    "before_id",
+                    "The ordering anchor must belong to the destination column.",
+                )
+
+        if after_anchor is not None:
+            integer(after_anchor, "after_id")
+            if after_anchor == before["id"]:
+                invalid("after_id", "The ordering anchor cannot be the task itself.")
+            target = c.execute(
+                "SELECT id, project_id, column_id, archived_at FROM tasks WHERE id=?",
+                (after_anchor,),
+            ).fetchone()
+            if not target:
+                raise Error(404, "not_found", f"Anchor task {after_anchor} not found.")
+            if target["project_id"] != before["project_id"]:
+                invalid(
+                    "after_id",
+                    "The ordering anchor must belong to the same project.",
+                )
+            if target["archived_at"]:
+                invalid("after_id", "The ordering anchor cannot be an archived task.")
+            if target["column_id"] != dest_col_id:
+                invalid(
+                    "after_id",
+                    "The ordering anchor must belong to the destination column.",
+                )
+
         ids = [
             r[0]
             for r in c.execute(
-                "SELECT id FROM tasks WHERE project_id=? AND status=? AND archived_at IS NULL ORDER BY position,id",
-                (before["project_id"], after["status"]),
+                "SELECT id FROM tasks WHERE project_id=? AND column_id=? AND archived_at IS NULL ORDER BY position,id",
+                (before["project_id"], dest_col_id),
             )
             if r[0] != before["id"]
         ]
-        index = ids.index(anchor) if anchor is not None else len(ids)
+
+        if anchor is not None and after_anchor is not None:
+            if anchor == after_anchor:
+                invalid(
+                    "before_id",
+                    "Cannot specify the same task as both before_id and after_id.",
+                )
+            if anchor not in ids or after_anchor not in ids:
+                invalid("before_id", "Anchor tasks must be in the destination column.")
+            b_idx = ids.index(anchor)
+            a_idx = ids.index(after_anchor)
+            if b_idx != a_idx + 1:
+                invalid(
+                    "before_id",
+                    "Ambiguous ordering: before_id must immediately follow after_id.",
+                )
+            index = b_idx
+        elif anchor is not None:
+            if anchor not in ids:
+                invalid("before_id", "Anchor task must be in the destination column.")
+            index = ids.index(anchor)
+        elif after_anchor is not None:
+            if after_anchor not in ids:
+                invalid("after_id", "Anchor task must be in the destination column.")
+            index = ids.index(after_anchor) + 1
+        else:
+            index = len(ids)
+
         ids.insert(index, before["id"])
         current = [
             r[0]
             for r in c.execute(
-                "SELECT id FROM tasks WHERE project_id=? AND status=? AND archived_at IS NULL ORDER BY position,id",
-                (before["project_id"], after["status"]),
+                "SELECT id FROM tasks WHERE project_id=? AND column_id=? AND archived_at IS NULL ORDER BY position,id",
+                (before["project_id"], dest_col_id),
             )
         ]
         if ids == current:
             return
-        # Integer gaps avoid renumbering other cards on normal moves. Very dense
-        # columns are rebased with an audited/versioned update for each changed row.
         positions = {
             r["id"]: r["position"]
             for r in c.execute(
-                "SELECT id,position FROM tasks WHERE project_id=? AND status=?",
-                (before["project_id"], after["status"]),
+                "SELECT id,position FROM tasks WHERE project_id=? AND column_id=?",
+                (before["project_id"], dest_col_id),
             )
         }
         left = positions[ids[index - 1]] if index else 0
@@ -1114,7 +1895,7 @@ class Service:
                 position = i * 1024
                 if identifier == before["id"]:
                     after["position"] = position
-                elif positions[identifier] != position:
+                elif positions.get(identifier) != position:
                     item = self.public_task(c, identifier)
                     self.save(
                         c, item, dict(item, position=position), "order-rebase", context
@@ -1268,6 +2049,8 @@ class Service:
         allowed = {
             "project_id",
             "status",
+            "phase",
+            "column_id",
             "assignee",
             "parent_id",
             "priority",
@@ -1281,17 +2064,24 @@ class Service:
         limit = self.page_options(query, allowed if not is_brief else {"project_id"})
         if is_brief and not actor:
             raise Error(400, "missing_actor", "Supply X-Actor or --as for a brief.")
-        for key in ("status", "priority", "kind"):
-            choices = {
-                "status": STATUSES,
-                "priority": PRIORITIES,
-                "kind": ("task", "epic"),
-            }[key]
-            if key in query and query[key] not in choices:
-                invalid(key, f"{key} must be one of: {', '.join(choices)}.")
+        for key in ("status", "phase", "priority", "kind"):
+            if key in query:
+                choices = {
+                    "status": STATUSES,
+                    "phase": STATUSES,
+                    "priority": PRIORITIES,
+                    "kind": ("task", "epic"),
+                }[key]
+                if query[key] not in choices:
+                    invalid(key, f"{key} must be one of: {', '.join(choices)}.")
         for key in ("archived", "blocked"):
             if key in query and query[key] not in {"true", "false"}:
                 invalid(key, f"{key} must be true or false.")
+        if "column_id" in query:
+            try:
+                integer(int(query["column_id"]), "column_id")
+            except (ValueError, TypeError):
+                invalid("column_id", "column_id must be a positive integer.")
         if "parent_id" in query:
             try:
                 integer(int(query["parent_id"]), "parent_id")
@@ -1299,35 +2089,46 @@ class Service:
                 invalid("parent_id", "parent_id must be a positive task ID.")
         where, params = (
             [
-                "archived_at IS "
+                "tasks.archived_at IS "
                 + ("NOT NULL" if query.get("archived") == "true" else "NULL")
             ],
             [],
         )
         if "project_id" in query:
             project = self.project(c, query["project_id"])
-            where.append("project_id=?")
+            where.append("tasks.project_id=?")
             params.append(project["id"])
         if self.access:
             scope, scope_params = self.access.task_scope(c)
-            where.append(scope)
+            where.append(scope.replace("project_id", "tasks.project_id"))
             params.extend(scope_params)
         total_where, total_params = list(where), list(params)
-        if "status" in query:
-            total_where.append("status=?")
-            total_params.append(query["status"])
+        phase_val = query.get("phase") or query.get("status")
+        if phase_val:
+            total_where.append("tasks.status=?")
+            total_params.append(phase_val)
+        if "column_id" in query:
+            total_where.append("tasks.column_id=?")
+            total_params.append(int(query["column_id"]))
         project_total = c.execute(
-            "SELECT COUNT(*) FROM tasks WHERE " + " AND ".join(total_where),
+            "SELECT COUNT(*) FROM tasks LEFT JOIN board_columns bc ON bc.id = tasks.column_id WHERE "
+            + " AND ".join(total_where),
             total_params,
         ).fetchone()[0]
-        for key in ("status", "assignee", "kind", "parent_id"):
+        for key in ("assignee", "kind", "parent_id"):
             if key in query:
-                where.append(key + "=?")
+                where.append("tasks." + key + "=?")
                 params.append(query[key])
+        if phase_val:
+            where.append("tasks.status=?")
+            params.append(phase_val)
+        if "column_id" in query:
+            where.append("tasks.column_id=?")
+            params.append(int(query["column_id"]))
         rows = c.execute(
-            "SELECT id FROM tasks WHERE "
+            "SELECT tasks.id FROM tasks LEFT JOIN board_columns bc ON bc.id = tasks.column_id WHERE "
             + " AND ".join(where)
-            + " ORDER BY CASE status WHEN 'backlog' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'review' THEN 2 ELSE 3 END,position,id",
+            + " ORDER BY COALESCE(bc.sort_key, CASE tasks.status WHEN 'backlog' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'review' THEN 2 ELSE 3 END), tasks.position, tasks.id",
             params,
         ).fetchall()
         items = []
@@ -1483,6 +2284,9 @@ class Service:
             ):
                 fields(query, set())
                 return self.access.project_access(self, c, parts[1])
+            if len(parts) == 3 and parts[0] == "projects" and parts[2] == "columns":
+                fields(query, set())
+                return self.project_columns(c, parts[1])
             if len(parts) == 2 and parts[0] == "projects":
                 fields(query, set())
                 return self.project(c, parts[1])
