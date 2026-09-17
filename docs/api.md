@@ -52,6 +52,8 @@ Versions prevent accidental overwrites; they do not silently merge edits.
 | `GET, POST /api/v1/projects` | Paginated list; create project |
 | `GET, PATCH /api/v1/projects/{id}` | Full project; version-checked edit/rename |
 | `GET /api/v1/projects/by-key/{key}` | Resolve current or historical key |
+| `GET /api/v1/projects/{id}/columns` | Board columns, WIP limits, task counts, and phase defaults |
+| `PUT /api/v1/projects/{id}/columns` | Atomic board configuration update, version check, occupied retirement validation |
 | `GET, POST /api/v1/tasks` | Paginated/filterable list; create task or epic in backlog |
 | `GET, PATCH /api/v1/tasks/{id}` | Full task; version-checked metadata edit |
 | `POST /api/v1/tasks/{id}/{action}` | Shared validated workflow action (below) |
@@ -73,6 +75,23 @@ the same fields plus `expected_version`. Keys are trimmed, uppercased and match
 `[A-Z][A-Z0-9]{0,9}`. Names are nonempty and at most 200 characters. Document links
 are `{label, uri}` entries. Renaming preserves integer IDs and historical aliases;
 another project cannot take a former key. Renaming back to your own alias is allowed.
+
+### Board columns
+
+Projects configure 1 to 50 active board columns. Each column has `id`, `name` (1–60 characters,
+case-insensitive unique among active columns), `allowed_phases` (subset of `["backlog", "in_progress", "review", "done"]`),
+`sort_key`, and optional `wip_limit`. All four canonical execution phases must remain reachable
+on the board. `phase_defaults` maps each of the four phases to a destination column.
+
+Board configuration updates (`PUT /api/v1/projects/{id}/columns`) require `workflow.manage` and
+`expected_version`. Retiring an occupied column requires an explicit replacement in `retirements`
+(or `retirement_mapping`). Occupied column retirement supports automatic same-phase relocation only;
+cross-phase retirement is rejected with `422` and actionable instructions to perform explicit task transitions
+first. Same-phase relocation preserves existing execution claims and enforces destination WIP capacity atomically.
+Changing `allowed_phases` on a retained column rejects if any active occupant's phase would become invalid.
+Duplicate column IDs, invalid defaults, and malformed retirement maps are rejected atomically before writing.
+External members calling `GET /api/v1/projects/{id}/columns` receive only public names and order; internal
+capacity metrics (`wip_limit` and `task_count`) and `phase_defaults` are masked.
 
 ### Task fields
 
@@ -106,27 +125,32 @@ Every action includes `expected_version`.
 
 | Action | Additional body and requirements |
 | --- | --- |
-| `claim` | Session header; ordinary task in backlog or unclaimed in-progress; readiness and assignee checks |
+| `claim` | Session header; ordinary task in backlog or unclaimed in-progress; optional `wip_override_reason` |
 | `resume` | Session header; rebinds an existing claim for the same actor |
 | `checkpoint` | `checkpoint`; in-progress work, acting assignee and matching claim session |
 | `handoff` | `checkpoint`, optional `to`; clears claim, retains in-progress status; omitted `to` retains assignee, explicit `null` offers pickup |
 | `reassign` | `assignee` (or null), `reason`; explicitly clears any claim |
 | `block`, `unblock` | `reason`; set/clear explicit blocker overlay |
-| `submit` | `result: {summary, evidence}`; in-progress, unblocked, matching owner/session; nonempty evidence |
+| `submit` | `result: {summary, evidence}`, optional `wip_override_reason`; in-progress, unblocked, matching owner/session; nonempty evidence |
 | `complete` | `acceptance_note`; review, unblocked, retained evidence; epics require completed children |
-| `request-changes` | `reason`; review to in-progress, no new claim |
-| `reopen` | `reason`; done to backlog; `reopen_parent: true` explicitly reopens a completed epic in the same transaction |
-| `archive`, `restore` | `reason`; claims and unfinished relied-on relationships must be resolved before archiving |
-| `move` | `status`, optional `before_id`, and the equivalent transition’s required fields |
+| `request-changes` | `reason`, optional `wip_override_reason`; review to in-progress, no new claim |
+| `reopen` | `reason`, optional `reopen_parent`, optional `wip_override_reason`; done to backlog |
+| `archive` | `reason`; claims and unfinished relied-on relationships must be resolved before archiving |
+| `restore` | `reason`, optional `wip_override_reason`; relocates to active compatible default if prior column retired; WIP capacity enforced |
+| `move` | `column_id` (or legacy `status`/`phase`), optional `before_id`/`after_id`, `wip_override_reason`, and the equivalent transition’s required fields |
 
-Manual backlog → in-progress movement requires an assignee and readiness but acquires
-no claim. In-progress → review requires `result`; review → done requires
-`acceptance_note`; review → in-progress requires `reason`. In-progress/review → backlog
-requires `reason` and `checkpoint`, clearing the claim. Done → backlog follows
-`reopen`, including explicit parent reopening. Other jumps fail. Reordering within a
-column requires no transition context. An omitted/null `before_id` chooses the end;
-an anchor must be another unarchived task in the destination project and column.
-Ranks are server-owned, computed transactionally with deterministic ID tie-breaking.
+Moving within the same phase only changes column and/or rank position; it preserves existing
+claims, sessions, and assignees without generating completion events. Moving across phases
+invokes existing transition rules (`work.execute` or claim for in-progress, `result` evidence for review,
+`work.accept` for done). Moving by `status` without `column_id` (v1 compatibility) automatically resolves
+to the configured default column for that phase. Centralized WIP enforcement checks every entry: create,
+claim, named workflow transitions, restore, and move. Entering a column at or over its `wip_limit` returns
+`409 wip_limit_exceeded`, unless an actor with `workflow.manage` provides an explicit `wip_override_reason`.
+Completing work to the `done` phase is never blocked by WIP limits. Same-column edits and claims are preserved.
+Ordering within a column supports `before_id` or `after_id` anchors, which must be active, unarchived
+tasks in the destination project and column. Missing, deleted, archived, wrong-project, wrong-column, self,
+or ambiguous conflicting anchors fail safely with no mutation. An omitted anchor appends to the column end.
+Ranks are server-owned and deterministic.
 
 An unfinished dependency blocks start, submit and complete. Reopening a prerequisite
 shows downstream work blocked without changing its column. Archiving does not make
@@ -147,10 +171,10 @@ Lists return `items`, `next_cursor`, `has_more` and `total`. Default limit is 50
 maximum is 200. Task lists also return `project_total` before assignee/epic/priority/
 blocked/search filters (within the chosen project, column and archive view).
 
-Task filters are `project_id`, `status`, `assignee`, `parent_id`, `priority`, `blocked`,
-`archived`, `q`, and `kind`. Booleans use `true`/`false`; archived defaults to false.
-Search matches current and historical references, titles and descriptions. Ordering
-is board column order, then server position, then ID. Other lists use ascending ID;
+Task filters are `project_id`, `column_id`, `phase` (or legacy `status`), `assignee`,
+`parent_id`, `priority`, `blocked`, `archived`, `q`, and `kind`. Booleans use `true`/`false`;
+archived defaults to false. Filtering by `column_id` or `phase` maintains stable cursor order:
+board column order (`sort_key`), server position, then ID tie-break. Other lists use ascending ID;
 history uses ascending event sequence. Cursors are bound to the instance, route and
 filters. These are pages of current state; edits between requests can shift offsets.
 Restarting a list gives a fresh view. Never treat a first page as the whole project.
@@ -161,9 +185,12 @@ versions and full task URLs. Brief reads never claim, resume or mutate work.
 
 Events use a separate cursor: `source=<instance_id>&after=0&limit=50`, with optional
 `project_id`/`task_id`. A page examines up to `limit` events globally, then filters.
-An empty filtered page can still have `has_more: true`. Advance `after` only to the
-returned examined sequence and keep draining. A wrong source fails explicitly.
-Reading events creates no receipt, acknowledgment, claim or status change.
+Operations include `board.columns_changed` (emitted once per configuration change, never
+generating fake per-task updates) and `task.moved` (recording `before_column_id`,
+`after_column_id`, `before_phase`, and `after_phase`). An empty filtered page can still
+have `has_more: true`. Advance `after` only to the returned examined sequence and keep draining.
+A wrong source fails explicitly. Reading events creates no receipt, acknowledgment, claim
+or status change.
 
 ## Attachments
 
@@ -196,12 +223,17 @@ on stdout and structured failures on stderr.
 tt project create HBR Harbor --as nate
 tt project update 1 --key HARBOR --name Harbor --version 1 --as nate
 tt project update 1 --brief-file prd.md --version 2 --as nate
+tt project columns 1
+tt project columns 1 --file custom-columns.json --version 1 --as nate
 tt task create HARBOR --file docs/example-task.json --as nate --request-id create-1
 tt task list --project HARBOR --assignee codex@harbor --json
+tt task list --project HARBOR --column-id 2 --phase in_progress --json
 tt task update 2 --file task-metadata.json --version 1 --as nate
 tt task claim 2 --version 2 --as codex@harbor --session checkout-1
-tt task checkpoint 2 --file docs/example-checkpoint.json --version 3 --as codex@harbor --session checkout-1
-tt task handoff 2 --to nate --file docs/example-checkpoint.json --version 4 --as codex@harbor --session checkout-1
+tt task move 2 --column-id 3 --version 3 --as codex@harbor --session checkout-1
+tt task move 2 --column-id 2 --after-id 1 --wip-override-reason "Incident triage" --version 4 --as nate
+tt task checkpoint 2 --file docs/example-checkpoint.json --version 5 --as codex@harbor --session checkout-1
+tt task handoff 2 --to nate --file docs/example-checkpoint.json --version 6 --as codex@harbor --session checkout-1
 tt task comment 2 --body 'Decision: preserve the first receipt.' --as nate
 tt task attach 2 evidence.txt --comment-id 1 --as nate
 tt task download 1 ./downloaded-evidence.txt

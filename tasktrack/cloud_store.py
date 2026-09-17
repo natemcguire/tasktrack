@@ -9,7 +9,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from .db import MIGRATIONS, SCHEMA_VERSION, now
+from .db import MIGRATIONS, SCHEMA_VERSION, now, validate_migration
 
 
 class Row:
@@ -62,6 +62,7 @@ class CloudStore:
                 self.sql.exec(
                     "INSERT INTO instance VALUES (?,?)", str(uuid.uuid4()), now()
                 )
+            validate_migration(self, target)
             self.sql.exec("DELETE FROM tt_schema")
             self.sql.exec("INSERT INTO tt_schema VALUES (?)", target)
 
