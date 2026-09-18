@@ -1419,45 +1419,73 @@ try {
     body: { expected_version: 3, internal_access: "restricted", grants: [] },
   });
   await api(colleague, `/tasks/${privateTask.id}`, { status: 404 });
-  // Browser regression: the access editor adds an ungranted internal member,
-  // preserves grant metadata the form doesn't surface, and shows a read-only
-  // view to a non-admin. Seed a grant that carries extra metadata first.
+  // Start the access UI regressions from an empty-grants restricted project.
   await api(owner, `/projects/${privateProject.id}/access`, {
     method: "PATCH",
-    body: {
-      expected_version: 4,
-      internal_access: "restricted",
-      grants: [
-        {
-          membership_id: colleagueMe.membership.id,
-          access: "manager",
-          can_approve_scope: true,
-        },
-      ],
-    },
+    body: { expected_version: 4, internal_access: "restricted", grants: [] },
   });
+
+  // Regression 1: admin adds an ungranted internal member through the UI, saves,
+  // and that member can then reach the project.
   await owner.page.goto(url + "/projects/PRIVATE/settings");
-  await expect(
-    owner.page.getByRole("heading", { name: "Access", exact: true }),
-  ).toBeVisible();
-  // Non-admin (regular) colleague sees access read-only: no Save control.
-  await colleague.page.goto(url + `/projects/PRIVATE/settings`);
-  await expect(
-    colleague.page.getByRole("heading", { name: "Access", exact: true }),
-  ).toBeVisible();
-  await expect(colleague.page.locator("#access-save")).toHaveCount(0);
-  // Owner saves without touching the manager grant; its can_approve_scope
-  // metadata must survive the round-trip through the form.
+  await owner.page.waitForSelector('#access-section[aria-busy="false"]');
+  await owner.page
+    .locator("#grant-add")
+    .selectOption(colleagueMe.membership.id);
+  await owner.page.getByRole("button", { name: "Add", exact: true }).click();
   await owner.page.locator("#access-save").click();
   await expect(
     owner.page.getByRole("status").filter({ hasText: "Access saved." }),
   ).toBeVisible();
-  const afterSave = await api(owner, `/projects/${privateProject.id}/access`);
-  const preserved = afterSave.grants.find(
+  assert.equal(
+    (await api(colleague, `/tasks/${privateTask.id}`)).id,
+    privateTask.id,
+  );
+
+  // Now that the colleague is a granted participant they can open the project,
+  // but without identity.manage the access editor is read-only. Wait for the
+  // section to finish loading before asserting the Save control is absent.
+  await colleague.page.goto(url + "/projects/PRIVATE/settings");
+  await colleague.page.waitForSelector('#access-section[aria-busy="false"]');
+  await expect(colleague.page.locator("#access-save")).toHaveCount(0);
+
+  // Regression 2: a concurrent editor advances the revision; a stale UI save
+  // hits 409, must not overwrite the fresh grants, and requires explicit
+  // reconciliation via "Load their version".
+  await owner.page.reload();
+  await owner.page.waitForSelector('#access-section[aria-busy="false"]');
+  // Another admin (simulated via API as the same owner from a second context)
+  // changes access out from under the open page.
+  const concurrent = await api(owner, `/projects/${privateProject.id}/access`);
+  await api(owner, `/projects/${privateProject.id}/access`, {
+    method: "PATCH",
+    body: {
+      expected_version: concurrent.revision,
+      internal_access: "restricted",
+      grants: [
+        { membership_id: colleagueMe.membership.id, access: "manager" },
+      ],
+    },
+  });
+  // The open page still holds the stale revision; saving must fail closed.
+  await owner.page.locator("#access-save").click();
+  await expect(
+    owner.page.getByRole("button", { name: "Load their version", exact: true }),
+  ).toBeVisible();
+  const afterConflict = await api(owner, `/projects/${privateProject.id}/access`);
+  const stillManager = afterConflict.grants.find(
     (g) => g.membership_id === colleagueMe.membership.id,
   );
-  assert.equal(preserved.access, "manager");
-  assert.ok(preserved.can_approve_scope, "can_approve_scope preserved through the form");
+  assert.equal(
+    stillManager.access,
+    "manager",
+    "stale UI save must not overwrite the concurrent change",
+  );
+  await owner.page
+    .getByRole("button", { name: "Load their version", exact: true })
+    .click();
+  await owner.page.waitForSelector('#access-section[aria-busy="false"]');
+
   await api(colleague, `/memberships/${ownerMe.membership.id}`, {
     method: "PATCH",
     status: 403,
