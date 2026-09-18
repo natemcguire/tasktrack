@@ -1107,6 +1107,34 @@ try {
     "Dedicated project settings rename persists across reload and has a clearly scoped invitations section",
   );
 
+  // Board columns editor: a manager renames a column, adds one, and saves the
+  // whole configuration atomically; the change persists via the columns API.
+  await alice.page.goto(url + "/projects/HBR/settings");
+  await alice.page.waitForSelector('#columns-section[aria-busy="false"]');
+  const firstName = alice.page.locator('[data-col-name="0"]');
+  await firstName.fill("Ideas");
+  await alice.page.getByRole("button", { name: "Add column", exact: true }).click();
+  const addedIndex = (await alice.page.locator("[data-col-name]").count()) - 1;
+  await alice.page.locator(`[data-col-name="${addedIndex}"]`).fill("Shipping");
+  await alice.page
+    .locator(`[data-col-phase="${addedIndex}"][value="done"]`)
+    .check();
+  await alice.page.locator("#columns-save").click();
+  await expect(
+    alice.page.getByRole("status").filter({ hasText: "Board columns saved." }),
+  ).toBeVisible();
+  const savedColumns = await api(alice, `/projects/${project.id}/columns`);
+  assert.ok(
+    savedColumns.columns.some((col) => col.name === "Ideas"),
+    "renamed column persists",
+  );
+  assert.ok(
+    savedColumns.columns.some(
+      (col) => col.name === "Shipping" && col.allowed_phases.includes("done"),
+    ),
+    "added column persists with its phase",
+  );
+
   const parentComment = await api(alice, `/tasks/${task.id}/comments`, {
     method: "POST",
     status: 201,

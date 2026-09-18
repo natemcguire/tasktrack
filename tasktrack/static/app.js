@@ -1550,9 +1550,10 @@ function projectSettings() {
   $("#breadcrumb").innerHTML =
     `<a href="/projects/${esc(project.key)}" data-nav>${esc(project.name)}</a> / Settings`;
   $("#main").innerHTML =
-    `<div class="page-head"><h1>Project settings</h1><a class="button" href="/projects/${esc(project.key)}" data-nav>Back to board</a></div><div class="project-settings"><section class="settings-section"><h2>General</h2><form id="project-name-form"><label for="project-name">Project name</label><div class="settings-row"><input id="project-name" name="name" value="${esc(project.name)}" required maxlength="200"><button class="button primary">Save name</button></div><p id="project-settings-message" role="status"></p></form><p class="small muted">Project key: ${esc(project.key)}</p><button class="button" id="edit-project-details">Edit brief, key & links</button></section>${account ? '<section class="settings-section" id="access-section" aria-busy="true"><h2>Access</h2><p class="muted">Loading access…</p></section>' : ""}</div>`;
+    `<div class="page-head"><h1>Project settings</h1><a class="button" href="/projects/${esc(project.key)}" data-nav>Back to board</a></div><div class="project-settings"><section class="settings-section"><h2>General</h2><form id="project-name-form"><label for="project-name">Project name</label><div class="settings-row"><input id="project-name" name="name" value="${esc(project.name)}" required maxlength="200"><button class="button primary">Save name</button></div><p id="project-settings-message" role="status"></p></form><p class="small muted">Project key: ${esc(project.key)}</p><button class="button" id="edit-project-details">Edit brief, key & links</button></section>${account ? '<section class="settings-section" id="access-section" aria-busy="true"><h2>Access</h2><p class="muted">Loading access…</p></section>' : ""}<section class="settings-section" id="columns-section" aria-busy="true"><h2>Board columns</h2><p class="muted">Loading columns…</p></section></div>`;
   $("#edit-project-details").onclick = () => projectForm(project);
   if (account) projectAccess(project);
+  projectColumns(project);
   $("#project-name-form").onsubmit = async (event) => {
     event.preventDefault();
     const name = $("#project-name").value,
@@ -1764,6 +1765,226 @@ function renderAccess(project, access, participants, canEdit) {
       button.disabled = false;
     }
   };
+}
+const PHASES = [
+  ["backlog", "Backlog"],
+  ["in_progress", "In progress"],
+  ["review", "Review"],
+  ["done", "Done"],
+];
+async function projectColumns(project) {
+  const section = $("#columns-section");
+  if (!section) return;
+  let config, caps;
+  try {
+    [config, caps] = await Promise.all([
+      api(`/projects/${project.id}/columns`),
+      api(`/me/capabilities?project_id=${project.id}`),
+    ]);
+  } catch (error) {
+    section.setAttribute("aria-busy", "false");
+    section.innerHTML = `<h2>Board columns</h2><p class="access-error" role="alert">Couldn’t load board columns. ${esc(errorText(error))} <button class="button quiet" id="columns-retry">Try again</button></p>`;
+    $("#columns-retry").onclick = () => projectColumns(project);
+    return;
+  }
+  renderColumns(project, config, !!caps.capabilities["workflow.manage"]);
+}
+function renderColumns(project, config, canEdit) {
+  const section = $("#columns-section");
+  section.setAttribute("aria-busy", "false");
+  // Local working copy. New rows have no id; the backend assigns one on save.
+  let cols = config.columns.map((c) => ({
+    id: c.id,
+    name: c.name,
+    allowed_phases: [...c.allowed_phases],
+    wip_limit: c.wip_limit,
+    task_count: c.task_count,
+  }));
+  let defaults = { ...config.phase_defaults };
+  const nameById = () =>
+    new Map(cols.map((c, i) => [c.id ?? `new-${i}`, c.name]));
+  const listEl = document.createElement("div");
+  listEl.id = "columns-list";
+  section.innerHTML = `<h2>Board columns</h2>`;
+  if (!canEdit) {
+    section.insertAdjacentHTML(
+      "beforeend",
+      `<p class="muted">Only project managers can change columns.</p><ul class="account-list">${cols
+        .map(
+          (c) =>
+            `<li><span>${esc(c.name)}<small>${c.allowed_phases.map((p) => PHASES.find((x) => x[0] === p)?.[1] || p).join(", ")}${c.wip_limit != null ? ` · WIP ${c.wip_limit}` : ""}</small></span></li>`,
+        )
+        .join("")}</ul>`,
+    );
+    return;
+  }
+  section.append(listEl);
+  section.insertAdjacentHTML(
+    "beforeend",
+    `<div class="columns-actions"><button class="button" id="col-add" type="button">Add column</button></div><div id="phase-defaults"></div><div class="access-actions"><button class="button primary" id="columns-save">Save columns</button><p id="columns-message" role="status"></p></div>`,
+  );
+
+  function paint() {
+    listEl.innerHTML = cols
+      .map((c, i) => {
+        const phases = PHASES.map(
+          ([p, label]) =>
+            `<label class="phase-check"><input type="checkbox" data-col-phase="${i}" value="${p}" ${c.allowed_phases.includes(p) ? "checked" : ""}> ${label}</label>`,
+        ).join("");
+        return `<div class="column-row" data-col-row="${i}">
+<div class="column-row-head"><input class="column-name" data-col-name="${i}" value="${esc(c.name)}" maxlength="60" aria-label="Column name">
+<span class="column-count">${c.task_count ? `${c.task_count} task${c.task_count === 1 ? "" : "s"}` : "empty"}</span></div>
+<div class="column-phases">${phases}</div>
+<div class="column-row-foot"><label class="wip-label">WIP limit <input type="number" min="0" class="column-wip" data-col-wip="${i}" value="${c.wip_limit ?? ""}" placeholder="none" aria-label="WIP limit for ${esc(c.name)}"></label>
+<span class="column-reorder"><button class="button quiet" data-col-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="Move ${esc(c.name)} up">↑</button><button class="button quiet" data-col-down="${i}" ${i === cols.length - 1 ? "disabled" : ""} aria-label="Move ${esc(c.name)} down">↓</button></span>
+<button class="button quiet" data-col-remove="${i}" aria-label="Retire ${esc(c.name)}">Retire</button></div></div>`;
+      })
+      .join("");
+    bindRows();
+    paintDefaults();
+  }
+  function paintDefaults() {
+    const names = nameById();
+    $("#phase-defaults").innerHTML =
+      `<h3>Where new work lands</h3><div class="phase-default-grid">${PHASES.map(
+        ([p, label]) => {
+          const opts = cols
+            .filter((c) => c.allowed_phases.includes(p))
+            .map((c, i) => {
+              const key = c.id ?? `new-${cols.indexOf(c)}`;
+              return `<option value="${esc(String(key))}" ${String(defaults[p]) === String(c.id) ? "selected" : ""}>${esc(c.name)}</option>`;
+            })
+            .join("");
+          return `<label>${label}<select data-phase-default="${p}">${opts || '<option value="">— no column allows this —</option>'}</select></label>`;
+        },
+      ).join("")}</div>`;
+    $("#phase-defaults")
+      .querySelectorAll("[data-phase-default]")
+      .forEach((sel) => {
+        sel.onchange = () => {
+          defaults[sel.dataset.phaseDefault] = sel.value;
+        };
+      });
+  }
+  function bindRows() {
+    listEl.querySelectorAll("[data-col-name]").forEach((el) => {
+      el.oninput = () => {
+        cols[+el.dataset.colName].name = el.value;
+      };
+    });
+    listEl.querySelectorAll("[data-col-phase]").forEach((el) => {
+      el.onchange = () => {
+        const c = cols[+el.dataset.colPhase];
+        c.allowed_phases = c.allowed_phases.filter((p) => p !== el.value);
+        if (el.checked) c.allowed_phases.push(el.value);
+        paintDefaults();
+      };
+    });
+    listEl.querySelectorAll("[data-col-wip]").forEach((el) => {
+      el.oninput = () => {
+        cols[+el.dataset.colWip].wip_limit =
+          el.value === "" ? null : Math.max(0, parseInt(el.value, 10) || 0);
+      };
+    });
+    listEl.querySelectorAll("[data-col-up]").forEach((btn) => {
+      btn.onclick = () => move(+btn.dataset.colUp, -1);
+    });
+    listEl.querySelectorAll("[data-col-down]").forEach((btn) => {
+      btn.onclick = () => move(+btn.dataset.colDown, 1);
+    });
+    listEl.querySelectorAll("[data-col-remove]").forEach((btn) => {
+      btn.onclick = () => retire(+btn.dataset.colRemove);
+    });
+  }
+  function move(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= cols.length) return;
+    [cols[i], cols[j]] = [cols[j], cols[i]];
+    paint();
+  }
+  function retire(i) {
+    if (cols.length <= 1) {
+      $("#columns-message").className = "access-error";
+      $("#columns-message").textContent = "Keep at least one column.";
+      return;
+    }
+    const c = cols[i];
+    if (c.task_count) {
+      alert(
+        `“${c.name}” has ${c.task_count} task${c.task_count === 1 ? "" : "s"}. Move them to another column first, then retire it — this preview can't relocate across phases.`,
+      );
+      return;
+    }
+    cols.splice(i, 1);
+    paint();
+  }
+  $("#col-add").onclick = () => {
+    cols.push({ id: null, name: "New column", allowed_phases: ["backlog"], wip_limit: null, task_count: 0 });
+    paint();
+  };
+  $("#columns-save").onclick = async () => {
+    const button = $("#columns-save"),
+      notice = $("#columns-message");
+    button.disabled = true;
+    notice.textContent = "";
+    notice.className = "";
+    // Resolve phase-default selections to real column ids where possible.
+    const idByKey = new Map();
+    cols.forEach((c, i) => idByKey.set(c.id ?? `new-${i}`, c.id));
+    const phase_defaults = {};
+    for (const [p] of PHASES) {
+      if (defaults[p] != null && defaults[p] !== "") {
+        const resolved = idByKey.get(defaults[p]) ?? idByKey.get(String(defaults[p]));
+        if (resolved != null) phase_defaults[p] = resolved;
+      }
+    }
+    try {
+      await api(`/projects/${project.id}/columns`, {
+        method: "PUT",
+        body: {
+          expected_version: config.version,
+          columns: cols.map((c, i) => {
+            const out = {
+              name: c.name,
+              allowed_phases: c.allowed_phases,
+              sort_key: i,
+              wip_limit: c.wip_limit,
+            };
+            if (c.id != null) out.id = c.id;
+            return out;
+          }),
+          phase_defaults,
+        },
+      });
+      toast("Board columns saved.");
+      projectColumns(project);
+    } catch (error) {
+      button.disabled = false;
+      notice.className = "access-error";
+      notice.textContent = errorText(error);
+      if (error.code === "version_conflict") {
+        let current;
+        try {
+          current = await api(`/projects/${project.id}/columns`);
+        } catch (refreshError) {
+          notice.textContent = errorText(refreshError);
+          return;
+        }
+        notice.innerHTML = "";
+        const msg = document.createElement("p");
+        msg.textContent =
+          "Someone else changed the board columns while you were editing. Your changes are still shown. Load their version to see the current setup — this discards your edits.";
+        const reload = document.createElement("button");
+        reload.className = "button";
+        reload.textContent = "Load their version";
+        reload.onclick = () => renderColumns(project, current, canEdit);
+        notice.append(msg, reload);
+      }
+    } finally {
+      if ($("#columns-save")) $("#columns-save").disabled = false;
+    }
+  };
+  paint();
 }
 async function projectIndex() {
   state.project = null;
