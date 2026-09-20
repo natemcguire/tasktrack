@@ -15,11 +15,14 @@ from workers import DurableObject, Request, Response, WorkerEntrypoint
 from tasktrack import (
     agent_auth,
     agent_routes,
+    app_routes,
+    import_fetches,
     import_routes,
     membership_api,
     notifications,
     passkeys,
     previews,
+    service_apps,
 )
 from tasktrack.access import Access
 from tasktrack.accounts import Accounts, digest, safe_next, timestamp, token
@@ -310,6 +313,7 @@ class Default(WorkerEntrypoint):
                 "/style.css",
                 "/hosted.js",
                 "/agent-access.js",
+                "/service-apps.js",
                 "/imports.js",
                 "/hosted.css",
                 "/favicon.svg",
@@ -339,6 +343,8 @@ class Default(WorkerEntrypoint):
             await accounts.limit("device-poll:" + ip, 120, 60)
             if data.get("grant_type") == "urn:ietf:params:oauth:grant-type:device_code":
                 result = await agent_auth.poll(accounts, data.get("device_code"))
+            elif data.get("grant_type") == "client_credentials":
+                result = await service_apps.exchange(accounts, data, ip)
             elif data.get("grant_type") == "refresh_token":
                 result = await agent_auth.refresh(accounts, data.get("refresh_token"))
             else:
@@ -456,6 +462,14 @@ class Default(WorkerEntrypoint):
             )
         if path == "/account" and method == "GET":
             return html(account_page(identity, await accounts.overview(identity)))
+        if path.startswith("/api/v1/import-fetches"):
+            return await import_fetches.route(
+                self, request, accounts, identity, path, method, body_data, bounded_body
+            )
+        if path == "/apps" or path.startswith("/api/v1/service-apps"):
+            return await app_routes.route(
+                self, request, accounts, identity, path, method, body_data
+            )
         if path == "/agents" or path.startswith(
             (
                 "/api/v1/agents",
@@ -472,10 +486,12 @@ class Default(WorkerEntrypoint):
             if response is not None:
                 return response
         if (
-            path == "/imports"
+            re.fullmatch(r"/api/v1/import-jobs/[a-f0-9-]+/people", path)
+            or path == "/imports"
             or path.startswith(
                 (
                     "/api/v1/import-providers",
+                    "/api/v1/import-people",
                     "/api/v1/import-connections",
                     "/api/v1/import-analyze",
                     "/api/v1/import-previews",
@@ -1099,6 +1115,9 @@ class Default(WorkerEntrypoint):
                     now,
                 ),
                 accounts.statement("DELETE FROM api_tokens WHERE expires_at<?", now),
+                accounts.statement(
+                    "DELETE FROM service_app_tokens WHERE expires_at<?", now
+                ),
                 accounts.statement(
                     "DELETE FROM human_challenges WHERE expires_at<?", now
                 ),

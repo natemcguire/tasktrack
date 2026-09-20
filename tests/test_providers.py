@@ -83,12 +83,13 @@ class ProviderTests(unittest.TestCase):
                 "id": 1,
                 "recordings": [
                     {"id": 2, "type": "Message", "title": "Keep me"},
+                    {"id": 4, "type": "Door", "title": "External link"},
                     {"id": 3, "type": "Todo", "title": "Work", "completed": True},
                 ],
             },
         )
-        self.assertEqual(len(b["records"]), 1)
-        self.assertTrue(any("Message" in w for w in b["warnings"]))
+        self.assertEqual(len(b["records"]), 2)
+        self.assertTrue(any("Door" in w for w in b["warnings"]))
 
     def test_csv_requires_mapping_and_stable_ids(self):
         raw = "id,title,status\n1,Work,Doing\n"

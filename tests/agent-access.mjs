@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { readdir } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
+import { spawn } from "node:child_process";
+import { TasktrackClient } from "../sdk/client.js";
 const origin = process.env.TT_TEST_URL || "http://localhost:8787";
 assert.equal(new URL(origin).hostname, "localhost");
 const folder = ".wrangler/state/v3/d1/miniflare-D1DatabaseObject";
@@ -84,6 +86,90 @@ try {
     await api("/api/v1/projects", { key: "AUTH", name: "Agent tests" })
   ).data;
   assert.ok(project.id);
+  await page.goto(origin + "/apps");
+  await page.locator("#app-name").fill("Internal dashboard test");
+  await page.locator("[data-project]").check();
+  await page.getByRole("button", { name: "Create with passkey" }).click();
+  await expect(page.locator("#app-secret")).toBeVisible();
+  const appCredential = JSON.parse(
+    await page.locator("#app-credential").textContent(),
+  );
+  const appClient = new TasktrackClient({
+    origin,
+    clientId: appCredential.client_id,
+    clientSecret: appCredential.client_secret,
+  });
+  assert.equal((await appClient.projects()).items[0].id, project.id);
+  const appToken = (
+    await api("/oauth/token", {
+      grant_type: "client_credentials",
+      ...appCredential,
+    })
+  ).data.access_token;
+  assert.equal(
+    (
+      await api(
+        "/api/v1/tasks",
+        { project_id: project.id, title: "Must be denied" },
+        appToken,
+      )
+    ).status,
+    403,
+  );
+  const dashboard = spawn(process.execPath, ["sdk/examples/dashboard.mjs"], {
+    env: {
+      ...process.env,
+      TT_URL: origin,
+      TT_CLIENT_ID: appCredential.client_id,
+      TT_CLIENT_SECRET: appCredential.client_secret,
+      TT_PROJECT_ID: String(project.id),
+      DASHBOARD_PASSWORD: "test-local-password-only",
+      PORT: "7799",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      dashboard.stdout.once("data", resolve);
+      dashboard.once("error", reject);
+      dashboard.once("exit", (code) =>
+        reject(new Error("Dashboard exited " + code)),
+      );
+    });
+    const denied = await fetch("http://127.0.0.1:7799/tasktrack/board");
+    assert.equal(denied.status, 401);
+    const dashboardContext = await browser.newContext({
+      httpCredentials: {
+        username: "internal",
+        password: "test-local-password-only",
+      },
+    });
+    const dashboardPage = await dashboardContext.newPage();
+    await dashboardPage.goto("http://127.0.0.1:7799");
+    await expect(
+      dashboardPage
+        .locator("tasktrack-tasks")
+        .getByRole("heading", { name: "Backlog", exact: true }),
+    ).toBeVisible();
+    assert.ok(
+      !(await dashboardPage.content()).includes(appCredential.client_secret),
+    );
+    await dashboardContext.close();
+  } finally {
+    dashboard.kill();
+  }
+  await page
+    .getByRole("button", { name: "Rotate secret", exact: true })
+    .click();
+  await expect(page.locator("#app-credential")).not.toContainText(
+    appCredential.client_secret,
+  );
+  assert.equal((await api("/api/v1/tasks", undefined, appToken)).status, 401);
+  await page
+    .getByRole("button", { name: "Revoke access", exact: true })
+    .click();
+  await expect(page.locator("#app-list")).toContainText("Revoked");
+
   const task = (
     await api("/api/v1/tasks", {
       project_id: project.id,

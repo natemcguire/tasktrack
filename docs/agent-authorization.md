@@ -26,9 +26,9 @@ Human lookup, challenge and decision routes are browser-only, session/CSRF prote
 
 ## Destructive actions
 
-Agents request typed `task.archive` or `task.reopen` approvals through `POST /api/v1/approval-requests`, supplying `task_id`, `expected_version`, and a reason. The server constructs the immutable target/action manifest. A human reviews it and approves with a fresh passkey. The same agent family can execute through `POST /api/v1/approval-requests/{id}/execute` while authority, expiry and task version still match. Mutation and receipt consumption commit in one transaction; retries return the original outcome.
+Agents request typed `task.archive`, `task.reopen`, `task.restore`, `task.reassign` or `task.backlog` approvals through `POST /api/v1/approval-requests`, supplying `task_id`, `expected_version`, and a reason. The server constructs the immutable target/action manifest. A human reviews it and approves with a fresh passkey. The same agent family can execute through `POST /api/v1/approval-requests/{id}/execute` while authority, expiry and task version still match. Mutation and receipt consumption commit in one transaction; retries return the original outcome.
 
-Direct bearer archive/reopen calls, including legacy tokens, are rejected. CLI commands are under `tt approval`. Import rollback has its own passkey-bound review and unchanged-record checks. These controls protect these Tasktrack endpoints; they do not constrain arbitrary shell commands or independently held external service credentials. New destructive operations require explicit typed adapters and enforcement at their executor.
+Reassignment requests include the exact `assignee` (or null to clear it). Reopening a parent also binds the parent version in the reviewed manifest. Direct bearer calls for these actions, including legacy tokens and board moves that resolve to a protected action, are rejected. CLI commands are under `tt approval`. Import rollback has its own passkey-bound review and unchanged-record checks. These controls protect these Tasktrack endpoints; they do not constrain arbitrary shell commands or independently held external service credentials. New destructive operations require explicit typed adapters and enforcement at their executor.
 
 ## Notifications and iMessage
 

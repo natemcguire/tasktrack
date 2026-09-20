@@ -6,7 +6,7 @@ Implemented September 20, 2026. Open `/imports` from Account settings. Browser a
 
 Choose a provider and export file or connection, select the source and destination project, map columns to workflow phases, and acknowledge destination access. Review record counts, missing attachments and coverage warnings before committing. Upload requested original files; SHA-256 and byte size must match the manifest. Download the reconciliation report and original source archive afterward.
 
-Imports preserve original dates, descriptions, source identity, history, comments, verified attachments and supported epic/task hierarchy. Source authors are clearly labeled rather than impersonated. Native assignees remain unassigned; source assignment data stays in provenance. Completed childless epics retain their historical state without fabricated workflow evidence. The board renders imported custom columns.
+Imports preserve original dates, descriptions, source identity, history, comments, verified attachments and supported epic/task hierarchy. Source authors are clearly labeled rather than impersonated. The preview lets administrators map source assignees to active internal workspace members with access to the destination project. Unmapped people remain in provenance and tasks stay unassigned. Multiple source assignees must resolve to at most one native assignee per record. Saving a mapping changes the preview digest and requires reviewing it again. Completed childless epics retain their historical state without fabricated workflow evidence. The board renders imported custom columns.
 
 A job commits in batches of 25 records. Cancel stops future batches; resume continues durable checkpoints. Repeated source identities are deduplicated. Changed source records become conflicts and never overwrite later Tasktrack edits. Rollback requires a fresh human passkey approval and archives only unchanged job-created records; later edits, comments, files or dependencies block rollback.
 
@@ -14,10 +14,10 @@ A job commits in batches of 25 records. Cancel stops future batches; resume cont
 
 - Jira: issue pagination, full comment/history pagination, final source revision check, types, status, hierarchy and downloadable attachments.
 - Trello: lists/cards, checklists, comments across action pages, attachments and archive state. Ordinary JSON exports may contain only the latest 1,000 actions; this is disclosed.
-- Basecamp: to-dos, to-do lists, card records, comments and upload records. Unsupported tools, embedded files and unavailable history are reported as partial. This is not a full-fidelity Basecamp backup.
+- Basecamp: to-dos, to-do lists, card records, comments, uploads, messages, documents, schedule entries and question answers. Non-task records become tasks with original record types and source metadata; provider-specific interactions are not reproduced. Unsupported tools, embedded files and unavailable history are reported as partial. This is not a full-fidelity Basecamp backup.
 - Generic Kanban: CSV columns `id,title,status,phase` plus optional supported dates and parents, or JSON cards/normalized bundles. File exports without independent source inventories remain partial.
 
-Limits: 2 MiB browser upload, 5,000 records per job, 500 KiB per record, 10 MiB per attachment and 50 destination columns. Provider snapshot fetching restarts after failure; native ingestion is resumable. Provider rate limits produce a retry message. Very large connected exports have not been production load-tested. Imports never invite users or delete source data.
+Limits: 2 MiB browser upload, 5,000 records per job, 500 KiB per record, 10 MiB per attachment and 50 destination columns. Connected source fetching checkpoints responses and downloaded bytes between requests (at most 12 new provider calls per resume). The browser resumes interrupted snapshots; checkpoints are valid for 24 hours and JSON responses are limited to 32 MiB. Native ingestion is independently resumable. Expired checkpoint objects currently require operator storage cleanup. Provider rate limits produce a retry message. Very large connected exports have not been production load-tested. Imports never invite users or delete source data.
 
 ## Provider configuration
 
@@ -35,6 +35,11 @@ All `/api/v1` routes require current workspace/project authority. Import operati
 | `GET /import-connections/{id}/projects` | Accessible source projects |
 | `GET /import-connections/{id}/statuses` | Source columns |
 | `POST /import-connections/{id}/snapshot` | Fetch, archive and prepare preview |
+| `GET, POST /import-fetches` | List or start durable connected snapshots |
+| `POST /import-fetches/{id}/resume` | Fetch the next bounded source chunk |
+| `POST /import-fetches/{id}/cancel` | Stop further source fetching |
+| `GET /import-people` | Eligible internal workspace members |
+| `POST /import-jobs/{id}/people` | Map source person IDs to member user IDs before commit |
 | `POST /import-analyze` | Inspect an export and mappings |
 | `POST /import-previews` | Archive a file export and prepare job |
 | `POST /import-jobs` | Prepare a normalized bundle |

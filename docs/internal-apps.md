@@ -1,27 +1,42 @@
 # Display Tasktrack work inside internal apps
 
-The hosted REST API supports task lists, project boards, task details, comments, attachments and change events. Internal apps should render these responses in their own UI. Tasktrack currently blocks iframe embedding and does not provide cross-origin browser CORS, an embeddable widget, app-only client credentials or an end-user SSO authorization-code flow.
+The hosted REST API supports task lists, project boards, task details, comments, attachments and change events. Internal apps should render these responses in their own UI. A server-side JavaScript SDK and reusable task-list/board web component are available in `sdk/`. Tasktrack blocks iframe embedding and does not provide cross-origin browser CORS or an end-user SSO authorization-code flow.
 
 ## Recommended architecture
 
-The internal app authenticates its users with its existing login. Its backend calls Tasktrack with a dedicated project-scoped read-only agent grant and returns only data its signed-in viewer may access. Store tokens only on the backend. Never put an owner token in browser JavaScript, local storage, URLs or public environment variables.
+The internal app authenticates its users with its existing login. Its backend calls Tasktrack with a workspace-owned, project-scoped read-only app credential and returns only data its signed-in viewer may access. Store tokens only on the backend. Never put an owner token in browser JavaScript, local storage, URLs or public environment variables.
 
-A shared integration token represents its approving owner, not the internal app's viewer. Tasktrack cannot infer that viewer's identity. The app must authorize every viewer for every project before returning data. Do not expose an unrestricted proxy or accept arbitrary Tasktrack paths from the browser. If viewers have different Tasktrack permissions, use separate per-user grants or enforce an explicit equivalent access policy in the app.
+A shared app token represents the application, not the internal app's viewer. Tasktrack cannot infer that viewer's identity. The app must authorize every viewer for every project before returning data. Do not expose an unrestricted proxy or accept arbitrary Tasktrack paths from the browser. If viewers have different Tasktrack permissions, use separate per-user grants or enforce an explicit equivalent access policy in the app.
 
 ## Provision read-only access
 
-Use the device enrollment API or the CLI:
+Open **Account → Internal apps** (`/apps`) as a workspace administrator. Name the app, choose its explicit projects, optionally include comments/files (`notes.read`), and confirm with a fresh passkey. Copy the client ID and one-time client secret into the app backend's secret store. Required scopes are `project.read` and `work.read`; app identities cannot write tasks or manage workspace settings.
 
-```sh
-tt auth login --url https://tasks.eastbayprojects.com \
-  --workspace WORKSPACE_ID --name 'SailScan internal dashboard' \
-  --project PROJECT_ID --capability project.read --capability work.read \
-  --owner-email OWNER_EMAIL
+These credentials belong to the workspace and survive removal of the creating administrator. They have no 30-day human grant expiry. Administrators can rotate or revoke them on `/apps`; both immediately invalidate previously issued access tokens. Lost secrets must be rotated. Scope changes require a new app.
+
+Exchange credentials through JSON `POST /oauth/token` with `grant_type: "client_credentials"`, `client_id`, and `client_secret`. Access tokens last 15 minutes. There is no refresh token: exchange the client credentials again. The SDK caches short-lived access tokens and coalesces concurrent exchanges:
+
+```js
+import { TasktrackClient } from './sdk/client.js';
+const tasktrack = new TasktrackClient({
+  clientId: process.env.TT_CLIENT_ID,
+  clientSecret: process.env.TT_CLIENT_SECRET,
+});
+// After your app authenticates and authorizes its viewer:
+const board = await tasktrack.board(3, { limit: 20 });
+const tasks = await tasktrack.tasks({ project_id: 3, limit: 50 });
 ```
 
-A human reviews the exact projects/capabilities and approves with a passkey. Repeat `--project` only for projects this app needs. Add `notes.read` only when displaying comments/files. The grant cannot exceed the owner's current permissions. Admin-only membership endpoints are unnecessary for rendering tasks.
+Return the authorized result from a fixed same-origin backend endpoint. Serve `sdk/components.js` as a static asset and render:
 
-The CLI stores and refreshes credentials privately. A custom backend implements the same [device and refresh protocol](agent-authorization.md): 15-minute access tokens, rotating refresh tokens, and a 30-day maximum grant. Serialize refreshes, store the replacement refresh token atomically, and require reconnect after expiry, revocation or an uncertain refresh response. This is currently a human-owned installation grant, not a permanent machine account.
+```html
+<script type="module" src="/assets/tasktrack-components.js"></script>
+<tasktrack-tasks src="/internal/tasktrack/board" view="board"></tasktrack-tasks>
+```
+
+Omit `view="board"` for a paginated task list. The component renders text safely and never receives Tasktrack credentials. Board previews show bounded column contents; use a task-list endpoint for full column pagination. See [the SDK guide](../sdk/README.md) for the runnable, authenticated dashboard example. The SDK is checked into this repository; it is not published to npm.
+
+For tools acting as a particular human, use [device enrollment](agent-authorization.md) instead. Those grants remain bounded by their owner's permissions and 30-day lifetime.
 
 ## Display endpoints
 
@@ -42,29 +57,10 @@ Every request sends `Authorization: Bearer ACCESS_TOKEN`. The token binds the wo
 
 Task lists return `items`, `next_cursor`, `has_more`, `total`, and `project_total`. Follow opaque `next_cursor` until `has_more` is false. Supported filters and task fields are in [the API reference](api.md). Boards return `configuration`, legacy phase `columns`, `epics`, and `configured_columns` keyed by column ID when custom columns are configured. Use `configuration.columns` for display order/names and the matching configured bucket; default boards use the phase buckets. Page full column contents through the task-list endpoint.
 
-For example, this code runs on the app server after its own viewer authorization. `tokenStore.validAccessToken()` represents the app's protected credential store with serialized refresh; it is not a Tasktrack SDK function.
-
-```js
-async function loadProjectTasks(projectId, tokenStore) {
-  const token = await tokenStore.validAccessToken();
-  const url = new URL('/api/v1/tasks', 'https://tasks.eastbayprojects.com');
-  url.searchParams.set('project_id', String(projectId));
-  url.searchParams.set('limit', '50');
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-    redirect: 'error',
-    cache: 'no-store',
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!response.ok) throw new Error(`Tasktrack returned ${response.status}`);
-  return response.json();
-}
-```
-
 For near-live display, poll filtered task lists or the event feed and refetch affected tasks. Events use `source`/`after`, distinct from list pagination. Advance the returned cursor even on an empty filtered page and drain `has_more`; a global page can contain no matching project events. Obtain `instance_id` from `/api/v1/health`. There is no WebSocket or webhook subscription for this integration yet.
 
-Treat Markdown and source content as untrusted: render plain text or sanitize rendered HTML. Proxy authorized attachment downloads through the app backend if necessary; do not add bearer tokens to download URLs. Handle 401 by reconnecting when refresh is unavailable, 403 as insufficient access, and 429 using retry/backoff. Remove cached access immediately when the integration is disconnected.
+Treat Markdown and source content as untrusted: render plain text or sanitize rendered HTML. Proxy authorized attachment downloads through the app backend if necessary; do not add bearer tokens to download URLs. Handle 401 by checking app revocation or secret rotation, 403 as insufficient access, and 429 using retry/backoff. Remove cached access immediately when the integration is disconnected.
 
 ## Current boundaries
 
-The REST data endpoints and scoped authentication are deployed. A reusable frontend widget, per-user SSO, app-owned service identities, JavaScript token-refresh SDK, and push updates are not implemented. These can build on this API without exposing broad credentials to the browser.
+Workspace app credentials, the SDK, and task-list/board component are implemented. Per-user SSO, webhooks and push updates remain unavailable. The example dashboard is a runnable integration example, not an independently deployed production app. Your backend remains responsible for viewer authentication and project authorization.

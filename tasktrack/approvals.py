@@ -8,6 +8,10 @@ import uuid
 
 from .db import Error, encode, now
 
+PROTECTED_TASK_ACTIONS = frozenset(
+    {"archive", "reopen", "restore", "reassign", "backlog"}
+)
+
 
 def identity(service):
     if not service.access:
@@ -101,12 +105,22 @@ def write(service, c, method, parts, body, context):
 
     who = identity(service)
     if len(parts) == 1 and method == "POST":
-        fields(body, {"operation", "task_id", "expected_version", "reason"})
-        if body.get("operation") not in ("task.archive", "task.reopen"):
+        fields(
+            body,
+            {
+                "operation",
+                "task_id",
+                "expected_version",
+                "reason",
+                "assignee",
+                "reopen_parent",
+            },
+        )
+        if body.get("operation") not in {"task." + a for a in PROTECTED_TASK_ACTIONS}:
             raise Error(
                 422,
                 "unsupported_operation",
-                "Supported operations are task.archive and task.reopen.",
+                "Choose task.archive, task.reopen, task.restore, task.reassign or task.backlog.",
             )
         task = service.public_task(c, integer(body.get("task_id"), "task_id"))
         service.check_version(body, task)
@@ -116,6 +130,14 @@ def write(service, c, method, parts, body, context):
             "expected_version": task["version"],
             "reason": string(body.get("reason"), "reason", True, 2000),
         }
+        if action == "reassign":
+            if "assignee" not in body:
+                raise Error(
+                    422, "assignee_required", "Supply assignee (or null to clear it)."
+                )
+            payload["assignee"] = body["assignee"]
+        if action == "reopen" and body.get("reopen_parent") is True:
+            payload["reopen_parent"] = True
         service.access.write(service, c, "POST", target, payload)
         manifest = {
             "method": "POST",
@@ -126,9 +148,22 @@ def write(service, c, method, parts, body, context):
             "project_id": task["project_id"],
             "operation": body["operation"],
         }
+        if payload.get("reopen_parent") and task.get("parent_id"):
+            parent = service.public_task(c, task["parent_id"])
+            manifest["parent"] = {
+                "id": parent["id"],
+                "version": parent["version"],
+                "title": parent["title"],
+            }
         rid = str(uuid.uuid4())
         digest = hashlib.sha256(encode(manifest).encode()).hexdigest()
-        summary = ("Archive " if action == "archive" else "Reopen ") + task["title"]
+        summary = {
+            "archive": "Archive ",
+            "reopen": "Reopen ",
+            "restore": "Restore ",
+            "reassign": "Reassign ",
+            "backlog": "Return to backlog: ",
+        }[action] + task["title"]
         c.execute(
             "INSERT INTO approval_requests(id,owner_id,agent_id,actor,manifest,digest,summary,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
             (
@@ -199,9 +234,28 @@ def write(service, c, method, parts, body, context):
                 "approval_required",
                 "A current approval is required for this operation.",
             )
+        if manifest.get("parent"):
+            parent = service.public_task(c, manifest["parent"]["id"])
+            if parent["version"] != manifest["parent"]["version"]:
+                raise Error(
+                    409,
+                    "approval_changed",
+                    "The affected parent changed. Request approval again.",
+                )
         # Same SQLite transaction as the mutation and idempotency receipt.
         status, result = service._mutate(
-            c, manifest["method"], manifest["path"], manifest["body"], context, None
+            c,
+            manifest["method"],
+            manifest["path"],
+            manifest["body"],
+            dict(
+                context,
+                approved_task_action=(
+                    manifest["task_id"],
+                    manifest["operation"].split(".")[1],
+                ),
+            ),
+            None,
         )
         c.execute(
             "UPDATE approval_requests SET state='executed',executed_at=?,result=? WHERE id=?",
@@ -216,7 +270,9 @@ def enforce(service, method, path):
         service.access
         and service.access.identity.get("bearer")
         and method == "POST"
-        and re.fullmatch(r"/api/v1/tasks/[^/]+/(archive|reopen)", path)
+        and re.fullmatch(
+            r"/api/v1/tasks/[^/]+/(archive|reopen|restore|reassign|backlog)", path
+        )
     ):
         raise Error(
             403,

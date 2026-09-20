@@ -133,3 +133,25 @@ class ApprovalTests(unittest.TestCase):
             c.execute("UPDATE approval_requests SET expires_at=0")
         with self.assertRaises(Error):
             self.write("/approval-requests/" + row["id"] + "/execute", {})
+
+    def test_board_move_cannot_bypass_reopen_approval(self):
+        with self.store.connection(write=True) as c:
+            c.execute("UPDATE tasks SET status='done' WHERE id=?", (self.task["id"],))
+        with self.assertRaises(Error) as raised:
+            self.write(
+                "/tasks/" + str(self.task["id"]) + "/move",
+                {"expected_version": 1, "status": "backlog", "reason": "Reset"},
+            )
+        self.assertEqual(raised.exception.payload["error"]["code"], "approval_required")
+
+    def test_reassignment_requires_human_and_binds_target_assignee(self):
+        body = {"expected_version": 1, "assignee": "next-owner", "reason": "Handoff"}
+        with self.assertRaises(Error):
+            self.write("/tasks/" + str(self.task["id"]) + "/reassign", body)
+        row = self.write(
+            "/approval-requests",
+            dict(body, operation="task.reassign", task_id=self.task["id"]),
+        )
+        self.approve(row)
+        result = self.write("/approval-requests/" + row["id"] + "/execute", {})
+        self.assertEqual(result["assignee"], "next-owner")
