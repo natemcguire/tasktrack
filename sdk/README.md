@@ -27,10 +27,10 @@ Serve `components.js` as a static asset. Your authenticated backend must authori
 ```html
 <script type="module" src="/assets/components.js"></script>
 <tasktrack-tasks src="/internal/tasks"></tasktrack-tasks>
-<tasktrack-tasks src="/internal/board" view="board"></tasktrack-tasks>
+<tasktrack-tasks src="/internal/board" tasks-src="/internal/tasks" view="board"></tasktrack-tasks>
 ```
 
-The source URL must be same-origin. Task lists follow opaque `cursor` values using a Next page button. Boards render configured columns or default phase buckets and indicate truncated columns; use task lists for full column pagination. Titles and source content render as text. Components emit `tasktrack-loaded` and `tasktrack-error` events. Styling uses `--tasktrack-text`, `--tasktrack-column`, and `--tasktrack-card`.
+The source URL must be same-origin. Task lists follow opaque `cursor` values using a Next page button. Boards render configured columns or default phase buckets. Set `tasks-src` to your same-origin task-list endpoint to load additional pages within each column. The backend must forward `cursor`, `view=summary`, and the selected `column_id` or `status`, while pinning the project and any other filters to match its board request. Without `tasks-src`, truncated columns display a notice. Titles and source content render as text. Components emit `tasktrack-loaded` and `tasktrack-error` events. Styling uses `--tasktrack-text`, `--tasktrack-column`, and `--tasktrack-card`.
 
 ## Runnable internal dashboard
 
