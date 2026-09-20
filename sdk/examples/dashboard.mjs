@@ -23,7 +23,7 @@ const client = new TasktrackClient({
   clientSecret: process.env.TT_CLIENT_SECRET,
 });
 const html =
-  '<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Internal project dashboard</title></head><body><h1>Project work</h1><tasktrack-tasks src="/tasktrack/board" view="board"></tasktrack-tasks><script type="module" src="/components.js"></script></body></html>';
+  '<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Internal project dashboard</title></head><body><h1>Project work</h1><tasktrack-tasks src="/tasktrack/board" tasks-src="/tasktrack/tasks" view="board"></tasktrack-tasks><script type="module" src="/components.js"></script></body></html>';
 const server = createServer(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -63,11 +63,18 @@ const server = createServer(async (req, res) => {
       );
     }
     let data;
-    if (url.pathname === "/tasktrack/board") data = await client.board(project);
+    if (url.pathname === "/tasktrack/board")
+      data = await client.board(project, { limit: 20 });
     else if (url.pathname === "/tasktrack/tasks")
       data = await client.tasks({
         project_id: project,
-        limit: 50,
+        limit: 20,
+        view: "summary",
+        ...(url.searchParams.has("column_id")
+          ? { column_id: url.searchParams.get("column_id") }
+          : url.searchParams.has("status")
+            ? { status: url.searchParams.get("status") }
+            : {}),
         cursor: url.searchParams.get("cursor") || undefined,
       });
     else {

@@ -1,6 +1,7 @@
 // Run against npm run dev:cloudflare. Only localhost with the local test outbox.
 import { chromium, expect } from "@playwright/test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
@@ -116,6 +117,13 @@ try {
     ).status,
     403,
   );
+  for (let i = 0; i < 21; i++) {
+    const created = await api("/api/v1/tasks", {
+      project_id: project.id,
+      title: "Dashboard pagination task " + i,
+    });
+    assert.equal(created.status, 201);
+  }
   const dashboard = spawn(process.execPath, ["sdk/examples/dashboard.mjs"], {
     env: {
       ...process.env,
@@ -151,6 +159,15 @@ try {
         .locator("tasktrack-tasks")
         .getByRole("heading", { name: "Backlog", exact: true }),
     ).toBeVisible();
+    const widget = dashboardPage.locator("tasktrack-tasks");
+    await expect(widget.locator("article")).toHaveCount(20);
+    await widget
+      .getByRole("button", { name: "Load more in Backlog", exact: true })
+      .click();
+    await expect(widget.locator("article")).toHaveCount(21);
+    await expect(
+      widget.getByRole("button", { name: "Load more in Backlog", exact: true }),
+    ).toHaveCount(0);
     assert.ok(
       !(await dashboardPage.content()).includes(appCredential.client_secret),
     );
@@ -207,6 +224,11 @@ try {
   });
   assert.equal(grant.status, 200, JSON.stringify(grant.data));
   const token = grant.data.access_token;
+  // This fictional recipient is reused across local test workspaces. Reset only
+  // its local fixture rate limit so repeated test runs remain independent.
+  db.prepare("DELETE FROM rate_limits WHERE key=?").run(
+    createHash("sha256").update("phone-recipient:+14155550123").digest("hex"),
+  );
   await page.getByLabel("Phone number", { exact: true }).fill("+14155550123");
   await page
     .getByRole("button", { name: "Send verification code", exact: true })

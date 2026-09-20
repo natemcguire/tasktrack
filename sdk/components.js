@@ -8,7 +8,7 @@ class TasktrackTasks extends HTMLElement {
     this.abort?.abort();
   }
   static get observedAttributes() {
-    return ["src", "view"];
+    return ["src", "view", "tasks-src"];
   }
   attributeChangedCallback() {
     if (this.isConnected) this.refresh();
@@ -73,11 +73,66 @@ class TasktrackTasks extends HTMLElement {
           const bucket =
             data.configured_columns?.[String(column.id)] ||
             data.columns[column.allowed_phases[0]];
-          for (const task of bucket?.items || []) card(task, section);
+          const cards = document.createElement("div");
+          section.append(cards);
+          for (const task of bucket?.items || []) card(task, cards);
           if (bucket?.has_more) {
-            const more = document.createElement("p");
-            more.textContent = "More tasks available in this column.";
-            section.append(more);
+            const endpoint = this.getAttribute("tasks-src");
+            if (!endpoint) {
+              const notice = document.createElement("p");
+              notice.textContent = "More tasks available in this column.";
+              section.append(notice);
+              continue;
+            }
+            let cursor = bucket.next_cursor;
+            const more = document.createElement("button");
+            more.textContent = "Load more in " + column.name;
+            const error = document.createElement("p");
+            error.setAttribute("role", "status");
+            section.append(more, error);
+            const signal = this.abort.signal;
+            more.onclick = async () => {
+              more.disabled = true;
+              error.textContent = "";
+              try {
+                const next = new URL(endpoint, location.href);
+                if (next.origin !== location.origin)
+                  throw new Error(
+                    "Use a same-origin authenticated app endpoint.",
+                  );
+                next.searchParams.set("view", "summary");
+                next.searchParams.set("cursor", cursor);
+                if (data.configured_columns) {
+                  next.searchParams.delete("status");
+                  next.searchParams.set("column_id", column.id);
+                } else {
+                  next.searchParams.delete("column_id");
+                  next.searchParams.set("status", column.allowed_phases[0]);
+                }
+                const response = await fetch(next, {
+                  credentials: "same-origin",
+                  cache: "no-store",
+                  redirect: "error",
+                  signal,
+                });
+                if (!response.ok)
+                  throw new Error("Could not load this column. Try again.");
+                const page = await response.json();
+                if (
+                  !Array.isArray(page.items) ||
+                  (page.has_more &&
+                    (!page.next_cursor || page.next_cursor === cursor))
+                )
+                  throw new Error("Invalid task page. Refresh the board.");
+                for (const task of page.items) card(task, cards);
+                cursor = page.next_cursor;
+                if (!page.has_more) more.remove();
+              } catch (e) {
+                if (e.name !== "AbortError") error.textContent = e.message;
+              } finally {
+                more.disabled = false;
+              }
+            };
           }
         }
       } else {

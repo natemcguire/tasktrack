@@ -31,10 +31,10 @@ Return the authorized result from a fixed same-origin backend endpoint. Serve `s
 
 ```html
 <script type="module" src="/assets/tasktrack-components.js"></script>
-<tasktrack-tasks src="/internal/tasktrack/board" view="board"></tasktrack-tasks>
+<tasktrack-tasks src="/internal/tasktrack/board" tasks-src="/internal/tasktrack/tasks" view="board"></tasktrack-tasks>
 ```
 
-Omit `view="board"` for a paginated task list. The component renders text safely and never receives Tasktrack credentials. Board previews show bounded column contents; use a task-list endpoint for full column pagination. See [the SDK guide](../sdk/README.md) for the runnable, authenticated dashboard example. The SDK is checked into this repository; it is not published to npm.
+Omit `view="board"` for a paginated task list. The component renders text safely and never receives Tasktrack credentials. Set `tasks-src` to enable per-column pagination. The backend must preserve the board query filters and forward `cursor`, `view=summary`, and `column_id` or `status`; the runnable example implements this. See [the SDK guide](../sdk/README.md) for the runnable, authenticated dashboard example. The SDK is checked into this repository; it is not published to npm.
 
 For tools acting as a particular human, use [device enrollment](agent-authorization.md) instead. Those grants remain bounded by their owner's permissions and 30-day lifetime.
 
