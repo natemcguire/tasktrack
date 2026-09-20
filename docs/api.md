@@ -10,6 +10,7 @@ determines the workspace and actor. Hosted requests ignore `X-Actor`. The hosted
 CLI uses `TT_URL` and `TT_TOKEN`. Browser sessions require `X-CSRF-Token` for writes;
 the browser also sends `X-Workspace-ID` to detect a stale workspace selection.
 
+[Internal app integration guide](internal-apps.md) ·
 [Executed request/response examples](api-examples.md) ·
 [Complete captured transcript](api-transcript.json)
 
@@ -54,6 +55,7 @@ Versions prevent accidental overwrites; they do not silently merge edits.
 | `GET /api/v1/projects/by-key/{key}` | Resolve current or historical key |
 | `GET /api/v1/projects/{id}/columns` | Board columns, WIP limits, task counts, and phase defaults |
 | `PUT /api/v1/projects/{id}/columns` | Atomic board configuration update, version check, occupied retirement validation |
+| `GET /api/v1/board` | Project board with column configuration and paginated column buckets |
 | `GET, POST /api/v1/tasks` | Paginated/filterable list; create task or epic in backlog |
 | `GET, PATCH /api/v1/tasks/{id}` | Full task; version-checked metadata edit |
 | `POST /api/v1/tasks/{id}/{action}` | Shared validated workflow action (below) |
