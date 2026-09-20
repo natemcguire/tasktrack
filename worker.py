@@ -12,7 +12,15 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from workers import DurableObject, Request, Response, WorkerEntrypoint
 
-from tasktrack import membership_api, passkeys, previews
+from tasktrack import (
+    agent_auth,
+    agent_routes,
+    import_routes,
+    membership_api,
+    notifications,
+    passkeys,
+    previews,
+)
 from tasktrack.access import Access
 from tasktrack.accounts import Accounts, digest, safe_next, timestamp, token
 from tasktrack.asset_version import ASSET_VERSION
@@ -301,6 +309,8 @@ class Default(WorkerEntrypoint):
                 "/passkeys.js",
                 "/style.css",
                 "/hosted.js",
+                "/agent-access.js",
+                "/imports.js",
                 "/hosted.css",
                 "/favicon.svg",
             }
@@ -321,6 +331,19 @@ class Default(WorkerEntrypoint):
         if path == "/healthz" and method == "GET":
             await accounts.one("SELECT 1 FROM users LIMIT 1")
             return Response.json({"status": "ok", "storage": "cloudflare"})
+        if path in {"/oauth/device_authorization", "/oauth/token"} and method == "POST":
+            data = await body_data(request, form=True)
+            ip = request.headers.get("CF-Connecting-IP", "local")
+            if path.endswith("device_authorization"):
+                return Response.json(await agent_auth.start(accounts, data, ip))
+            await accounts.limit("device-poll:" + ip, 120, 60)
+            if data.get("grant_type") == "urn:ietf:params:oauth:grant-type:device_code":
+                result = await agent_auth.poll(accounts, data.get("device_code"))
+            elif data.get("grant_type") == "refresh_token":
+                result = await agent_auth.refresh(accounts, data.get("refresh_token"))
+            else:
+                result = {"error": "unsupported_grant_type"}
+            return Response.json(result, status=400 if "error" in result else 200)
         returning = re.fullmatch(
             r"/preview/return/([a-f0-9-]{36})/([A-Za-z0-9_-]{43})", path
         )
@@ -433,6 +456,50 @@ class Default(WorkerEntrypoint):
             )
         if path == "/account" and method == "GET":
             return html(account_page(identity, await accounts.overview(identity)))
+        if path == "/agents" or path.startswith(
+            (
+                "/api/v1/agents",
+                "/api/v1/agent-enrollments",
+                "/api/v1/agent-notifications",
+                "/api/v1/agent-channels",
+                "/api/v1/agent-deliveries",
+                "/api/v1/approval-requests",
+            )
+        ):
+            response = await agent_routes.route(
+                self, request, accounts, identity, path, method, body_data
+            )
+            if response is not None:
+                return response
+        if (
+            path == "/imports"
+            or path.startswith(
+                (
+                    "/api/v1/import-providers",
+                    "/api/v1/import-connections",
+                    "/api/v1/import-analyze",
+                    "/api/v1/import-previews",
+                    "/integrations/",
+                )
+            )
+            or re.fullmatch(
+                r"/api/v1/import-jobs/[^/]+/(source|files/[a-f0-9]{64}|rollback/(challenge|decision))",
+                path,
+            )
+        ):
+            response = await import_routes.route(
+                self,
+                request,
+                accounts,
+                identity,
+                path,
+                method,
+                query,
+                body_data,
+                bounded_body,
+            )
+            if response is not None:
+                return response
         if (
             path.startswith("/account/") or path == "/auth/logout" or invitation
         ) and method == "POST":
@@ -584,6 +651,24 @@ class Default(WorkerEntrypoint):
                 request.headers.get("X-Via", "api"),
                 upload,
             )
+            if (
+                method == "POST"
+                and path == "/api/v1/approval-requests"
+                and status == 201
+            ):
+                try:
+                    await notifications.notify(
+                        accounts,
+                        identity,
+                        "approval:" + result["id"],
+                        "Your agent wants to "
+                        + result["summary"]
+                        + ". Review the exact action and approve or deny: "
+                        + accounts.origin
+                        + "/agents",
+                    )
+                except Error:
+                    pass  # The request remains visible in the human inbox if notifications are throttled.
             if method == "GET" and re.fullmatch(
                 r"/api/v1/attachments/\d+/content", path
             ):
@@ -1014,6 +1099,35 @@ class Default(WorkerEntrypoint):
                     now,
                 ),
                 accounts.statement("DELETE FROM api_tokens WHERE expires_at<?", now),
+                accounts.statement(
+                    "DELETE FROM human_challenges WHERE expires_at<?", now
+                ),
+                accounts.statement(
+                    "DELETE FROM import_oauth_states WHERE expires_at<?", now
+                ),
+                accounts.statement(
+                    "UPDATE agent_enrollments SET status='expired' WHERE expires_at<? AND status IN ('pending','approved')",
+                    now,
+                ),
+                accounts.statement(
+                    "UPDATE security_deliveries SET status='expired',body='' WHERE expires_at<? AND status='queued'",
+                    now,
+                ),
+                accounts.statement(
+                    "UPDATE security_deliveries SET status='uncertain' WHERE lease_expires<? AND status='claimed'",
+                    now,
+                ),
+                accounts.statement(
+                    "UPDATE security_deliveries SET body='' WHERE expires_at<?",
+                    now - 86400,
+                ),
+                accounts.statement(
+                    "DELETE FROM agent_notifications WHERE created_at<?",
+                    now - 30 * 86400,
+                ),
+                accounts.statement(
+                    "DELETE FROM agent_enrollments WHERE expires_at<?", now - 30 * 86400
+                ),
                 accounts.statement("DELETE FROM invites WHERE expires_at<?", now),
                 accounts.statement(
                     "DELETE FROM rate_limits WHERE updated_at<?", now - 86400
