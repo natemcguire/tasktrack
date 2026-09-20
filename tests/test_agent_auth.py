@@ -203,3 +203,50 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         )
         with self.assertRaises(Error):
             await auth.lookup(self.accounts, self.identity, result["user_code"])
+
+    async def test_owner_can_find_correct_workspace_without_disclosing_to_others(self):
+        result = await auth.start(
+            self.accounts,
+            {
+                "workspace_id": "w",
+                "name": "Bridge",
+                "project_ids": [1],
+                "capabilities": ["notifications.deliver"],
+                "owner_email": "u@example.com",
+            },
+            "workspace-hint",
+        )
+        with self.assertRaises(Error) as hint:
+            await auth.lookup(
+                self.accounts,
+                self.identity | {"workspace_id": "other"},
+                result["user_code"],
+            )
+        self.assertEqual(
+            hint.exception.payload["error"]["code"], "enrollment_workspace"
+        )
+        self.assertEqual(hint.exception.payload["error"]["workspace_id"], "w")
+        with self.assertRaises(Error) as hidden:
+            await auth.lookup(
+                self.accounts,
+                self.identity | {"user_id": "outsider", "workspace_id": "other"},
+                result["user_code"],
+            )
+        self.assertEqual(
+            hidden.exception.payload["error"]["code"], "enrollment_missing"
+        )
+        self.assertNotIn("workspace_id", hidden.exception.payload["error"])
+        self.c.execute("INSERT INTO users VALUES('u2','second@example.com','Second',1)")
+        self.c.execute(
+            "INSERT INTO memberships(workspace_id,user_id,role,created_at) VALUES('w','u2','owner',1)"
+        )
+        self.c.execute("UPDATE memberships SET status='suspended' WHERE user_id='u'")
+        with self.assertRaises(Error) as removed:
+            await auth.lookup(
+                self.accounts,
+                self.identity | {"workspace_id": "other"},
+                result["user_code"],
+            )
+        self.assertEqual(
+            removed.exception.payload["error"]["code"], "enrollment_missing"
+        )

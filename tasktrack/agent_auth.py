@@ -202,11 +202,31 @@ async def lookup(accounts, identity, code):
         timestamp(),
         "pending",
     )
+    if not row:
+        # Only route to a workspace this user can access, respecting any named
+        # owner. A code alone never grants workspace membership.
+        elsewhere = await accounts.one(
+            "SELECT e.workspace_id,w.name FROM agent_enrollments e JOIN workspaces w ON w.id=e.workspace_id JOIN memberships m ON m.workspace_id=e.workspace_id AND m.user_id=? AND m.status='active' AND m.kind='internal' WHERE e.code_hash=? AND (e.owner_id IS NULL OR e.owner_id=?) AND e.expires_at>? AND e.status='pending'",
+            identity["user_id"],
+            digest(code),
+            identity["user_id"],
+            timestamp(),
+        )
+        if elsewhere and elsewhere["workspace_id"] != identity["workspace_id"]:
+            raise Error(
+                409,
+                "enrollment_workspace",
+                "This code belongs to "
+                + elsewhere["name"]
+                + ". Switch workspace to review it.",
+                workspace_id=elsewhere["workspace_id"],
+                workspace_name=elsewhere["name"],
+            )
     if not row or (row["owner_id"] and row["owner_id"] != identity["user_id"]):
         raise Error(
             404,
             "enrollment_missing",
-            "Code unavailable. Check the code and selected workspace.",
+            "Code unavailable. Check the code, sign-in email and workspace, or request a new code if it expired.",
         )
     return row
 

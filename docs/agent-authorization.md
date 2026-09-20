@@ -10,7 +10,7 @@ Run:
 tt auth login --url https://tasks.eastbayprojects.com --workspace WORKSPACE_ID --name Codex --project PROJECT_ID --owner-email YOUR_EMAIL
 ```
 
-Use repeated `--project` and `--capability` options to narrow access. The CLI displays a review link and short code. On a signed-in browser, enter the code, review scope, then confirm with a fresh user-verified passkey. Register a passkey in Account settings first. The code pairs the agent and browser; the passkey provides human verification. A link visit never approves access.
+Use repeated `--project` and `--capability` options to narrow access. The CLI displays a review link and short code. On a signed-in browser, enter the code, review scope, then confirm with a fresh user-verified passkey. If another workspace is selected, lookup automatically routes to the request’s workspace when your account has active internal membership and satisfies any named-owner restriction. Routing does not approve access; the review and passkey are still required. The page shows the signed-in email so account mismatches are visible. Register a passkey in Account settings first. The code pairs the agent and browser; the passkey provides human verification. A link visit never approves access.
 
 The agent alone holds the private polling secret and receives credentials through the API. Tokens never appear in notification links. Access tokens last 15 minutes; rotating refresh credentials expire with the 30-day grant. Reused refresh credentials revoke the family. The CLI serializes refreshes and stores secrets in a mode-0600 file under a mode-0700 config directory. Lost credential responses require re-enrollment; there is no refresh replay grace.
 

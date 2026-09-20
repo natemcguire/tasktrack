@@ -17,6 +17,7 @@ def agent_page(identity):
         "Agent access",
         f"""<main class="account-content"><a href="/account">Account settings</a>
 <h1>Agent access</h1><p>Review requests, approve with your passkey, and revoke access whenever you need.</p>
+<p>Signed in as <strong>{escape(identity.get("email", ""))}</strong> · <a href="/account">Change account or workspace</a></p>
 <p>Workspace: <strong>{escape(identity["workspace_name"])}</strong></p><p>Workspace ID: <code>{escape(identity["workspace_id"])}</code></p>
 <form id="agent-code-form"><label for="agent-code">Code shown by your agent</label><input id="agent-code" maxlength="12" autocomplete="off" required placeholder="ABCD-EFGH"><button class="button primary">Review request</button></form>
 <p id="agent-message" role="status" aria-live="polite"></p><section id="agent-review" hidden><h2>Review access</h2><div id="agent-details"></div><p>Approve only if you initiated this connection. The agent name is supplied by the requesting device.</p><button class="button primary" id="agent-approve">Approve with passkey</button> <button class="button" id="agent-deny">Deny</button></section>
@@ -181,7 +182,16 @@ async def route(worker, request, accounts, identity, path, method, body_data):
     if path == "/api/v1/agent-enrollments/lookup" and method == "POST":
         accounts.csrf(request, identity)
         data = await body_data(request)
-        row = await agent_auth.lookup(accounts, identity, data.get("code"))
+        try:
+            row = await agent_auth.lookup(accounts, identity, data.get("code"))
+        except Error as error:
+            details = error.payload["error"]
+            if details["code"] != "enrollment_workspace":
+                raise
+            # Lookup proves this reviewer still has internal membership in the
+            # target workspace. Changing context never approves the grant.
+            await accounts.switch(identity, details["workspace_id"])
+            return Response.json({"workspace_switched": True})
         await validate_scope(worker, identity, row)
         return Response.json(agent_auth.public_enrollment(row))
     match = re.fullmatch(
