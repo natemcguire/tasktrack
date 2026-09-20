@@ -82,6 +82,14 @@ document.querySelector("#agent-code-form").onsubmit = (e) => {
     current = await api("/agent-enrollments/lookup", {
       code: document.querySelector("#agent-code").value,
     });
+    if (current.workspace_switched) {
+      sessionStorage.setItem(
+        "tasktrack-enrollment-code",
+        document.querySelector("#agent-code").value,
+      );
+      location.reload();
+      return;
+    }
     const box = document.querySelector("#agent-details");
     box.replaceChildren();
     line(box, "Agent: " + current.name);
@@ -253,3 +261,10 @@ Promise.all([
 ]).catch((e) => {
   message.textContent = e.message;
 });
+
+const savedEnrollmentCode = sessionStorage.getItem("tasktrack-enrollment-code");
+if (savedEnrollmentCode) {
+  sessionStorage.removeItem("tasktrack-enrollment-code");
+  document.querySelector("#agent-code").value = savedEnrollmentCode;
+  document.querySelector("#agent-code-form").requestSubmit();
+}

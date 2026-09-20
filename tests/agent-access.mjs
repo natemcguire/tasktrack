@@ -196,6 +196,7 @@ try {
   const enrollment = await api("/oauth/device_authorization", {
     workspace_id: me.workspace_id,
     name: "Test agent",
+    owner_email: email,
     project_ids: [project.id],
     capabilities: [
       "project.read",
@@ -206,7 +207,27 @@ try {
     ],
   });
   assert.equal(enrollment.status, 200);
+  // Start in a different authorized workspace: lookup must route back before
+  // showing the review, without approving or widening the agent's scope.
+  const otherWorkspace = crypto.randomUUID();
+  db.prepare(
+    "INSERT INTO workspaces(id,name,created_by,created_at) VALUES(?,?,?,?)",
+  ).run(
+    otherWorkspace,
+    "Other test workspace",
+    me.user_id,
+    Math.floor(Date.now() / 1000),
+  );
+  db.prepare(
+    "INSERT INTO memberships(workspace_id,user_id,role,created_at) VALUES(?,?,?,?)",
+  ).run(otherWorkspace, me.user_id, "owner", Math.floor(Date.now() / 1000));
+  await ctx.request.post(origin + "/account/switch", {
+    form: { workspace_id: otherWorkspace, csrf },
+  });
   await page.goto(origin + "/agents");
+  await expect(
+    page.getByText("Other test workspace", { exact: true }),
+  ).toBeVisible();
   await page
     .getByLabel("Code shown by your agent")
     .fill(enrollment.data.user_code);
@@ -214,6 +235,9 @@ try {
     .getByRole("button", { name: "Review request", exact: true })
     .click();
   await expect(page.locator("#agent-review")).toBeVisible();
+  csrf = await page.locator('meta[name="tt-csrf"]').getAttribute("content");
+  assert.equal((await api("/api/v1/me")).data.workspace_id, me.workspace_id);
+  assert.equal((await api("/api/v1/agents")).data.items.length, 0);
   await page
     .getByRole("button", { name: "Approve with passkey", exact: true })
     .click();
