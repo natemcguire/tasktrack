@@ -273,3 +273,8 @@ Role/status/kind/capability changes revoke affected sessions and agent credentia
 in the same database transaction. A membership-level `project.create` grant can
 allow an internal non-admin to create projects; admin-only capabilities cannot
 be delegated. See [authorization policy](authorization-policy.md).
+
+
+## Imports and agent authorization
+
+See [provider imports](imports.md) for export/connection previews, verified attachments, resumable ingestion and reconciliation. See [agent authorization](agent-authorization.md) for device enrollment, scoped rotating tokens, human passkey approvals, notification channels and CLI setup. Bearer archive/reopen operations now require an approved typed action request.
