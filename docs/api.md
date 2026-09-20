@@ -279,4 +279,10 @@ be delegated. See [authorization policy](authorization-policy.md).
 
 ## Imports and agent authorization
 
-See [provider imports](imports.md) for export/connection previews, verified attachments, resumable ingestion and reconciliation. See [agent authorization](agent-authorization.md) for device enrollment, scoped rotating tokens, human passkey approvals, notification channels and CLI setup. Bearer archive/reopen operations now require an approved typed action request.
+See [provider imports](imports.md) for export/connection previews, verified attachments, resumable ingestion and reconciliation. See [agent authorization](agent-authorization.md) for device enrollment, scoped rotating tokens, human passkey approvals, notification channels and CLI setup. Bearer archive, reopen, restore, reassign and backlog operations require an approved typed action request, including board moves that resolve to those actions.
+
+### Workspace-owned internal applications
+
+See [internal apps](internal-apps.md) for server-side client credentials, the JavaScript SDK, and the task-list/board web component. Browser administrators manage apps with fresh passkey approval through `/apps` and `/api/v1/service-apps`: `GET` lists apps; `POST /challenge` then `POST` creates one; `POST /{id}/rotate/challenge` or `/revoke/challenge` followed by the corresponding action rotates or revokes it. Client credentials exchange at `POST /oauth/token` using JSON `grant_type=client_credentials`; access lasts 15 minutes. App scopes are read-only and bind explicit projects.
+
+Connected import snapshots use `GET, POST /api/v1/import-fetches` and `POST /api/v1/import-fetches/{id}/resume` or `/cancel`. They are browser-admin, workspace- and owner-bound. Assignee mapping uses `GET /api/v1/import-people` and `POST /api/v1/import-jobs/{id}/people` before commit; see [imports](imports.md) for limits and reconciliation.

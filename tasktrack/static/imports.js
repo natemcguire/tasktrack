@@ -74,6 +74,7 @@ function selectedMapping() {
 }
 function details(value) {
   job = value;
+  renderPeople(value);
   document.querySelector("#import-review").hidden = false;
   const box = document.querySelector("#import-summary");
   box.replaceChildren();
@@ -141,7 +142,8 @@ document.querySelector("#import-preview").onclick = (e) =>
       ? "Reading provider records and files…"
       : "Preparing preview…";
     const value = connected
-      ? await api("/import-connections/" + connected.id + "/snapshot", {
+      ? await fetchSnapshot({
+          connection_id: connected.id,
           ...common,
           account_id: connected.account,
           source_project: connected.project,
@@ -369,3 +371,100 @@ document.querySelector("#import-rollback").onclick = (e) =>
     message.textContent =
       "Unchanged imported work archived. Source mappings and history are retained.";
   });
+
+let peopleMembers;
+async function renderPeople(value) {
+  const box = document.querySelector("#import-people");
+  box.replaceChildren();
+  const save = document.querySelector("#import-people-save");
+  save.hidden = value.state !== "preview" || !value.people?.length;
+  if (save.hidden) return;
+  try {
+    peopleMembers ||= (await api("/import-people")).items;
+    if (job.id !== value.id) return;
+    node("h3", "Map source assignees", box);
+    for (const person of value.people) {
+      const label = node("label", person.name, box);
+      const select = document.createElement("select");
+      select.dataset.person = person.id;
+      const none = node("option", "Leave unassigned", select);
+      none.value = "";
+      for (const member of peopleMembers) {
+        const option = node(
+          "option",
+          member.name + " (" + member.email + ")",
+          select,
+        );
+        option.value = member.id;
+        option.selected = value.people_mapping?.[person.id] === member.email;
+      }
+      label.append(select);
+    }
+  } catch (e) {
+    message.textContent = e.message;
+  }
+}
+document.querySelector("#import-people-save").onclick = (e) =>
+  run(e.target, async () => {
+    const mapping = Object.fromEntries(
+      [...document.querySelectorAll("[data-person]")].map((s) => [
+        s.dataset.person,
+        s.value || null,
+      ]),
+    );
+    details(
+      await api("/import-jobs/" + job.id + "/people", {
+        digest: job.digest,
+        mapping,
+      }),
+    );
+    message.textContent = "People mapping saved. Review and import.";
+  });
+
+async function fetchSnapshot(data) {
+  const pending = await api("/import-fetches", data);
+  localStorage.setItem("tasktrack-fetch:" + workspace, pending.id);
+  return resumeFetch(pending.id);
+}
+async function resumeFetch(id) {
+  let state;
+  do {
+    state = await api("/import-fetches/" + id + "/resume", {});
+    message.textContent = `Reading source: ${state.requests_done} requests saved. You can close this page and resume later.`;
+  } while (state.state !== "complete");
+  localStorage.removeItem("tasktrack-fetch:" + workspace);
+  return state.result;
+}
+async function showSavedFetches() {
+  const box = document.querySelector("#import-fetches");
+  try {
+    const saved = await api("/import-fetches");
+    box.replaceChildren();
+    for (const fetch of saved.items.filter((f) =>
+      ["pending", "fetching"].includes(f.state),
+    )) {
+      const row = document.createElement("div");
+      box.append(row);
+      node(
+        "p",
+        `Saved source fetch · ${fetch.requests_done} requests · ${new Date(fetch.created_at * 1000).toLocaleString()}`,
+        row,
+      );
+      button("Resume saved source fetch", row, async () => {
+        details(await resumeFetch(fetch.id));
+        await jobs();
+        row.remove();
+      });
+      button("Cancel saved source fetch", row, async () => {
+        await api("/import-fetches/" + fetch.id + "/cancel", {});
+        if (localStorage.getItem("tasktrack-fetch:" + workspace) === fetch.id)
+          localStorage.removeItem("tasktrack-fetch:" + workspace);
+        message.textContent = "Source fetch cancelled.";
+        row.remove();
+      });
+    }
+  } catch (e) {
+    message.textContent = e.message;
+  }
+}
+showSavedFetches();

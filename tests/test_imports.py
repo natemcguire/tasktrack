@@ -175,3 +175,23 @@ class ImportTests(unittest.TestCase):
                 {"digest": j["digest"], "manifest_digest": preview["digest"]},
             )
         self.assertIsNone(self.s.read("/api/v1/tasks/" + str(tid))["archived_at"])
+
+    def test_people_mapping_changes_preview_digest_and_preserves_assignment(self):
+        data = self.dataset()
+        data["records"][0]["source_assignees"] = [{"id": "source-user", "name": "Alex"}]
+        j = self.preview(data)
+        mapped = self.write(
+            "/import-jobs/" + j["id"] + "/people",
+            {"digest": j["digest"], "mapping": {"source-user": "alex@example.com"}},
+        )
+        self.assertNotEqual(mapped["digest"], j["digest"])
+        with self.assertRaises(Error):
+            self.commit(j)
+        self.commit(mapped)
+        task = self.s.read("/api/v1/tasks")["items"][0]
+        self.assertEqual(task["assignee"], "alex@example.com")
+        with self.assertRaises(Error):
+            self.write(
+                "/import-jobs/" + j["id"] + "/people",
+                {"digest": mapped["digest"], "mapping": {}},
+            )

@@ -32,7 +32,7 @@ def safe_next(value):
     return (
         value
         if re.fullmatch(
-            r"/(?:preview/return/[a-f0-9-]{36}/[A-Za-z0-9_-]{43}|account|agents|imports|triage|invite/[A-Za-z0-9_-]{43}|tasks/[0-9]+|projects/[A-Za-z0-9]+(?:/settings)?)?",
+            r"/(?:preview/return/[a-f0-9-]{36}/[A-Za-z0-9_-]{43}|account|agents|apps|imports|triage|invite/[A-Za-z0-9_-]{43}|tasks/[0-9]+|projects/[A-Za-z0-9]+(?:/settings)?)?",
             value or "",
         )
         else "/"
@@ -259,6 +259,10 @@ class Accounts:
             bearer = False
         if not secret or len(secret) > 300:
             return None
+        if bearer and secret.startswith("tta_"):
+            from .service_apps import authenticate
+
+            return await authenticate(self, secret)
         session_hash = digest(secret)
         if preview_secret is not None:
             preview = await self.one(

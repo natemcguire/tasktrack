@@ -1534,6 +1534,17 @@ class Service:
                     (task["status"], target_phase),
                     "invalid",
                 )
+        if self.access and self.access.identity.get("bearer"):
+            from .approvals import PROTECTED_TASK_ACTIONS
+
+            if actual in PROTECTED_TASK_ACTIONS and context.get(
+                "approved_task_action"
+            ) != (task["id"], actual):
+                raise Error(
+                    403,
+                    "approval_required",
+                    "This action, including board moves that perform it, requires a human-approved request.",
+                )
         allowed = {
             "start": {"backlog"},
             "claim": {"backlog", "in_progress"},

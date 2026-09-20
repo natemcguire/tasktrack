@@ -48,6 +48,37 @@ def phase(name, mapping, default="backlog"):
 
 
 def bundle(provider, account, project, records, warnings, complete=False):
+    for r in records:
+        raw = r.get("metadata", {})
+        people = (
+            r.get("assignee_source")
+            or raw.get("assignees")
+            or raw.get("idMembers")
+            or raw.get("assignee")
+            or []
+        )
+        if not isinstance(people, list):
+            people = [people]
+        r["source_assignees"] = [
+            {
+                "id": str(
+                    p.get("accountId")
+                    or p.get("id")
+                    or p.get("emailAddress")
+                    or p.get("name")
+                ),
+                "name": str(
+                    p.get("displayName")
+                    or p.get("name")
+                    or p.get("emailAddress")
+                    or p.get("id")
+                ),
+            }
+            if isinstance(p, dict)
+            else {"id": str(p), "name": str(p)}
+            for p in people
+            if p
+        ]
     return {
         "schema_version": 1,
         "provider": provider,
@@ -282,6 +313,10 @@ def basecamp(data, account, mapping):
             "Todo",
             "Todolist",
             "Upload",
+            "Message",
+            "Document",
+            "Schedule::Entry",
+            "Question::Answer",
             "Kanban::Card",
             "Kanban::Column",
             "Kanban::Triage",
@@ -299,9 +334,28 @@ def basecamp(data, account, mapping):
         if typ in ("Kanban::Column", "Kanban::Triage", "Kanban::NotNow"):
             continue
         rid = str(item["id"])
+        if typ in (
+            "Message",
+            "Document",
+            "Schedule::Entry",
+            "Question::Answer",
+            "Upload",
+        ):
+            warnings.append(
+                typ
+                + " "
+                + rid
+                + " is preserved as a task with its original type and raw metadata; provider-specific interactions are not reproduced."
+            )
         parent = item.get("parent") or {}
-        name = item.get("_column_name") or (
-            "Done" if item.get("completed") else "Backlog"
+        name = (
+            item.get("_column_name")
+            or (
+                parent.get("title")
+                if parent.get("type", "").startswith("Kanban::")
+                else None
+            )
+            or ("Done" if item.get("completed") else "Backlog")
         )
         parent_id = str(parent["id"]) if parent.get("type") == "Todolist" else None
         title = item.get("title") or item.get("content") or "Untitled"

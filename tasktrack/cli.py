@@ -59,10 +59,21 @@ def parser():
     ).add_subparsers(dest="operation", required=True)
     sub(approvals, "list")
     p = sub(approvals, "request")
-    p.add_argument("action", choices=["task.archive", "task.reopen"])
+    p.add_argument(
+        "action",
+        choices=[
+            "task.archive",
+            "task.reopen",
+            "task.restore",
+            "task.reassign",
+            "task.backlog",
+        ],
+    )
     p.add_argument("task_id", type=int)
     p.add_argument("--version", type=int, required=True)
     p.add_argument("--reason", required=True)
+    p.add_argument("--assignee")
+    p.add_argument("--reopen-parent", action="store_true")
     for name in ("get", "execute"):
         sub(approvals, name).add_argument("id")
     imports = sub(
@@ -275,6 +286,12 @@ def execute(args):
             "approval-requests",
             {
                 "operation": args.action,
+                **(
+                    {"assignee": None if args.assignee == "null" else args.assignee}
+                    if args.action == "task.reassign"
+                    else {}
+                ),
+                **({"reopen_parent": True} if args.reopen_parent else {}),
                 "task_id": args.task_id,
                 "expected_version": args.version,
                 "reason": args.reason,

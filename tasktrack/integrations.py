@@ -591,10 +591,24 @@ class Client:
                     + urlencode({"type": typ, "bucket": project, "status": status})
                 )
         for r in records:
-            if r.get("type") in ("Todo", "Todolist", "Kanban::Card") and r.get(
-                "comments_url"
+            if r.get("type") in (
+                "Todo",
+                "Todolist",
+                "Kanban::Card",
+                "Message",
+                "Document",
+                "Upload",
+                "Schedule::Entry",
+                "Question::Answer",
             ):
-                r["_comments"] = await self.pages(r["comments_url"])
+                if r.get("url"):
+                    detail, _ = await self.get(r["url"])
+                    r.update(detail)
+                if r.get("comments_url"):
+                    r["_comments"] = await self.pages(r["comments_url"])
+                parent = r.get("parent") or {}
+                if parent.get("type", "").startswith("Kanban::"):
+                    r["_column_name"] = parent.get("title") or parent.get("name")
         project_info["recordings"] = records
         project_info["_complete"] = False
         project_info["_warnings"] = [

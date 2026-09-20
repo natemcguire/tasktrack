@@ -97,6 +97,25 @@ def validate(dataset):
             )
         r["status"] = source_text(r.get("status", r["phase"]), "status", 60)
         r["kind"] = "epic" if r.get("type", "").lower() == "epic" else "task"
+        people = r.get("source_assignees", [])
+        if (
+            not isinstance(people, list)
+            or len(people) > 100
+            or any(
+                not isinstance(p, dict)
+                or not isinstance(p.get("id"), str)
+                or not p["id"]
+                or len(p["id"]) > 500
+                or not isinstance(p.get("name"), str)
+                or len(p["name"]) > 500
+                for p in people
+            )
+        ):
+            raise Error(
+                422,
+                "source_people",
+                "Source assignees need bounded string IDs and names.",
+            )
         for key in ("created_at", "updated_at", "archived_at"):
             r[key] = source_time(r.get(key))
         if not isinstance(r.get("comments", []), list) or not isinstance(
@@ -212,6 +231,8 @@ def report(row):
         "report": json.loads(row["report"]),
         "warnings": dataset["warnings"],
         "source_complete": dataset["complete"],
+        "people": dataset.get("people", []),
+        "people_mapping": dataset.get("people_mapping", {}),
         "attachments": dataset.get(
             "attachments",
             [a for r in dataset.get("records", []) for a in r.get("attachments", [])],
@@ -318,6 +339,13 @@ def write(service, c, method, parts, body, context):
             service.access.identity["user_id"] if service.access else context["actor"]
         )
         records = dataset.pop("records")
+        for record in records:
+            record.pop("mapped_assignee", None)
+        dataset["people"] = list(
+            {
+                str(p["id"]): p for r in records for p in r.get("source_assignees", [])
+            }.values()
+        )
         dataset.update(
             total=len(records),
             columns=list(dict.fromkeys(r["status"] for r in records)),
@@ -356,6 +384,73 @@ def write(service, c, method, parts, body, context):
         raise Error(404, "not_found", "Import operation unavailable.")
     row = job(service, c, parts[1])
     action = parts[2]
+    if action == "people":
+        fields(body, {"digest", "mapping"})
+        if (
+            row["state"] != "preview"
+            or row["cursor"] != 0
+            or body.get("digest") != row["digest"]
+        ):
+            raise Error(
+                409,
+                "import_changed",
+                "People can only be mapped on the current uncommitted preview.",
+            )
+        mapping = body.get("mapping")
+        if not isinstance(mapping, dict) or (
+            service.access
+            and mapping != service.access.identity.get("verified_people_mapping")
+        ):
+            raise Error(
+                403,
+                "people_mapping",
+                "Choose verified workspace members through the import wizard.",
+            )
+        dataset = json.loads(row["dataset"])
+        source_ids = {p["id"] for p in dataset.get("people", [])}
+        if not set(mapping) <= source_ids or any(
+            v is not None and (not isinstance(v, str) or len(v) > 254)
+            for v in mapping.values()
+        ):
+            raise Error(
+                422,
+                "people_mapping",
+                "Choose valid source people and destination members.",
+            )
+        records = []
+        for item in c.execute(
+            "SELECT position,data FROM import_items WHERE job_id=? ORDER BY position",
+            (row["id"],),
+        ).fetchall():
+            record = json.loads(item["data"])
+            mapped = list(
+                dict.fromkeys(
+                    mapping[p["id"]]
+                    for p in record.get("source_assignees", [])
+                    if mapping.get(p["id"])
+                )
+            )
+            if len(mapped) > 1:
+                raise Error(
+                    422,
+                    "multiple_assignees",
+                    "Tasktrack has one assignee per task. Map multiple source assignees to one person or leave extra people unmapped.",
+                )
+            record["mapped_assignee"] = mapped[0] if mapped else None
+            c.execute(
+                "UPDATE import_items SET data=? WHERE job_id=? AND position=?",
+                (encode(record), row["id"], item["position"]),
+            )
+            records.append(record)
+        dataset["people_mapping"] = mapping
+        revised = fingerprint(
+            {"project_id": row["project_id"], "dataset": dataset, "records": records}
+        )
+        c.execute(
+            "UPDATE import_jobs SET dataset=?,digest=?,updated_at=? WHERE id=?",
+            (encode(dataset), revised, now(), row["id"]),
+        )
+        return 200, report(job(service, c, row["id"]))
     if action == "rollback":
         fields(body, {"digest", "manifest_digest"})
         if body.get("digest") != row["digest"]:
@@ -618,12 +713,13 @@ def ingest(service, c, job, record, context, summary):
         (pid, column_id),
     ).fetchone()[0]
     tid = c.execute(
-        "INSERT INTO tasks(project_id,kind,parent_id,status,assignee,position,archived_at,version,data,column_id) VALUES(?,?,?,?,NULL,?,?,1,?,?)",
+        "INSERT INTO tasks(project_id,kind,parent_id,status,assignee,position,archived_at,version,data,column_id) VALUES(?,?,?,?,?,?,?,1,?,?)",
         (
             pid,
             record["kind"],
             parent_id,
             record["phase"],
+            record.get("mapped_assignee"),
             position,
             record.get("archived_at"),
             encode(data),
