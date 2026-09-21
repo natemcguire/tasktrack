@@ -231,6 +231,40 @@ async def lookup(accounts, identity, code):
     return row
 
 
+async def enrollment_status(accounts, identity, enrollment_id):
+    browser(identity)
+    row = await accounts.one(
+        "SELECT * FROM agent_enrollments WHERE id=? AND workspace_id=? AND owner_id=?",
+        enrollment_id,
+        identity["workspace_id"],
+        identity["user_id"],
+    )
+    if not row:
+        raise Error(
+            404,
+            "enrollment_missing",
+            "Connection request unavailable for this account and workspace.",
+        )
+    state = row["status"]
+    if state in ("pending", "approved") and row["expires_at"] <= timestamp():
+        state = "expired"
+    if state == "consumed":
+        grant = await accounts.one(
+            "SELECT revoked_at,expires_at FROM agent_grants WHERE id=?", row["grant_id"]
+        )
+        state = (
+            "connected"
+            if grant and not grant["revoked_at"] and grant["expires_at"] > timestamp()
+            else "inactive"
+        )
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "status": state,
+        "expires_at": row["expires_at"],
+    }
+
+
 async def decision(accounts, identity, row, approved):
     browser(identity)
     # Caller verifies fresh passkey binding before entering here.

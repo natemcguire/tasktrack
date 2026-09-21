@@ -75,6 +75,67 @@ async function attempt(button, fn) {
     button.disabled = false;
   }
 }
+const progress = document.querySelector("#agent-progress");
+const progressTitle = document.querySelector("#agent-progress-title");
+const progressDetail = document.querySelector("#agent-progress-detail");
+const progressKey = "tasktrack-enrollment-status:" + workspace;
+let progressTimer;
+let progressGeneration = 0;
+function showProgress(title, detail) {
+  progress.hidden = false;
+  progressTitle.textContent = title;
+  progressDetail.textContent = detail;
+}
+function monitorConnection(id) {
+  clearTimeout(progressTimer);
+  const generation = ++progressGeneration;
+  const check = async () => {
+    try {
+      const state = await api("/agent-enrollments/" + id + "/status");
+      if (generation !== progressGeneration) return;
+      if (state.status === "connected") {
+        showProgress(
+          "Agent connected",
+          state.name + " collected its credential. Connection is complete.",
+        );
+        await loadAgents();
+        return;
+      }
+      if (state.status === "approved") {
+        showProgress(
+          "Approval saved — waiting for agent",
+          "Your approval is recorded. Keep the agent running so it can collect its credential.",
+        );
+      } else if (state.status === "pending") {
+        showProgress(
+          "Approval not completed",
+          "The server has not recorded approval. Review the code and complete the passkey prompt.",
+        );
+        return;
+      } else {
+        const expired = state.status === "expired";
+        showProgress(
+          expired ? "Connection request expired" : "Agent is not connected",
+          expired
+            ? "No credential was issued in time. Ask the agent for a new connection request."
+            : "This request was denied, cancelled, or its access is no longer active.",
+        );
+        return;
+      }
+      progressTimer = setTimeout(check, 3000);
+    } catch (e) {
+      if (generation !== progressGeneration) return;
+      showProgress(
+        "Connection not confirmed",
+        "Could not verify the connection: " +
+          e.message +
+          " Refresh this page to check again.",
+      );
+    }
+  };
+  check();
+}
+window.addEventListener("pagehide", () => clearTimeout(progressTimer));
 let current;
 document.querySelector("#agent-code-form").onsubmit = (e) => {
   e.preventDefault();
@@ -90,6 +151,10 @@ document.querySelector("#agent-code-form").onsubmit = (e) => {
       location.reload();
       return;
     }
+    clearTimeout(progressTimer);
+    progressGeneration++;
+    progress.hidden = true;
+    sessionStorage.removeItem(progressKey);
     const box = document.querySelector("#agent-details");
     box.replaceChildren();
     line(box, "Agent: " + current.name);
@@ -109,17 +174,37 @@ for (const decision of ["approve", "deny"]) {
   button.onclick = () =>
     attempt(button, async () => {
       const path = "/agent-enrollments/" + current.id;
-      const proof =
-        decision === "approve"
-          ? await confirmPasskey(await api(path + "/challenge", {}))
-          : {};
-      await api(path + "/decision", { decision, ...proof });
-      document.querySelector("#agent-review").hidden = true;
-      message.textContent =
-        decision === "approve"
-          ? "Approved. Your agent can now collect its credential."
-          : "Request denied.";
-      await loadAgents();
+      sessionStorage.setItem(progressKey, current.id);
+      try {
+        let proof = {};
+        if (decision === "approve") {
+          showProgress(
+            "Confirm with your passkey",
+            "Complete the system prompt, then return here to confirm the agent connected.",
+          );
+          proof = await confirmPasskey(await api(path + "/challenge", {}));
+          showProgress(
+            "Saving your approval",
+            "Passkey response received. Waiting for the server to record approval.",
+          );
+        }
+        const result = await api(path + "/decision", { decision, ...proof });
+        if (result.status !== (decision === "approve" ? "approved" : "denied"))
+          throw new Error("The server did not confirm the decision.");
+        document.querySelector("#agent-review").hidden = true;
+        message.textContent =
+          decision === "approve" ? "Approval saved." : "Request denied.";
+        monitorConnection(current.id);
+      } catch (e) {
+        showProgress(
+          "Approval not confirmed",
+          e.name === "NotAllowedError"
+            ? "The passkey prompt was cancelled or timed out. Review the request and try again."
+            : e.message +
+                " Refresh this page to check whether approval was recorded.",
+        );
+        throw e;
+      }
     });
 }
 async function loadAgents() {
@@ -268,3 +353,7 @@ if (savedEnrollmentCode) {
   document.querySelector("#agent-code").value = savedEnrollmentCode;
   document.querySelector("#agent-code-form").requestSubmit();
 }
+
+const savedEnrollmentStatus = sessionStorage.getItem(progressKey);
+if (savedEnrollmentStatus && !savedEnrollmentCode)
+  monitorConnection(savedEnrollmentStatus);

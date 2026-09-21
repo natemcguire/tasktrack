@@ -241,13 +241,21 @@ try {
   await page
     .getByRole("button", { name: "Approve with passkey", exact: true })
     .click();
-  await expect(page.locator("#agent-message")).toContainText("Approved.");
+  await expect(page.locator("#agent-message")).toContainText("Approval saved.");
   const grant = await api("/oauth/token", {
     grant_type: "urn:ietf:params:oauth:grant-type:device_code",
     device_code: enrollment.data.device_code,
   });
   assert.equal(grant.status, 200, JSON.stringify(grant.data));
   const token = grant.data.access_token;
+  await expect(page.locator("#agent-progress-title")).toHaveText(
+    "Agent connected",
+    { timeout: 10000 },
+  );
+  await page.reload();
+  await expect(page.locator("#agent-progress-title")).toHaveText(
+    "Agent connected",
+  );
   // This fictional recipient is reused across local test workspaces. Reset only
   // its local fixture rate limit so repeated test runs remain independent.
   db.prepare("DELETE FROM rate_limits WHERE key=?").run(
