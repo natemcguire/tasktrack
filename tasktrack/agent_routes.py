@@ -20,7 +20,7 @@ def agent_page(identity):
 <p>Signed in as <strong>{escape(identity.get("email", ""))}</strong> · <a href="/account">Change account or workspace</a></p>
 <p>Workspace: <strong>{escape(identity["workspace_name"])}</strong></p><p>Workspace ID: <code>{escape(identity["workspace_id"])}</code></p>
 <form id="agent-code-form"><label for="agent-code">Code shown by your agent</label><input id="agent-code" maxlength="12" autocomplete="off" required placeholder="ABCD-EFGH"><button class="button primary">Review request</button></form>
-<p id="agent-message" role="status" aria-live="polite"></p><section id="agent-review" hidden><h2>Review access</h2><div id="agent-details"></div><p>Approve only if you initiated this connection. The agent name is supplied by the requesting device.</p><button class="button primary" id="agent-approve">Approve with passkey</button> <button class="button" id="agent-deny">Deny</button></section>
+<p id="agent-message" role="status" aria-live="polite"></p><section id="agent-progress" hidden aria-live="polite"><h2 id="agent-progress-title"></h2><p id="agent-progress-detail"></p></section><section id="agent-review" hidden><h2>Review access</h2><div id="agent-details"></div><p>Approve only if you initiated this connection. The agent name is supplied by the requesting device.</p><button class="button primary" id="agent-approve">Approve with passkey</button> <button class="button" id="agent-deny">Deny</button></section>
 <section class="account-section"><h2>Notifications</h2><label><input type="checkbox" id="agent-email"> Email me when an agent requests access</label><p>Messages contain a review link. Credentials are never sent in messages.</p><div id="channel-list"></div><form id="channel-form"><label for="channel-kind">Phone notification channel</label><select id="channel-kind"><option value="imessage">iMessage (personal Mac bridge)</option><option value="sms">SMS</option></select><label for="channel-phone">Phone number</label><input id="channel-phone" type="tel" placeholder="+14155550123" required><button class="button">Send verification code</button></form><p>iMessage requires your signed-in Mac running the personal Tasktrack message bridge. SMS requires a configured sender.</p><form id="channel-verify" hidden><label for="channel-code">Phone verification code</label><input id="channel-code" inputmode="numeric" maxlength="6" required><button class="button">Verify phone with passkey</button></form></section>
 <section><h2>Your agents</h2><div id="agent-list"></div></section><section><h2>Action approvals</h2><div id="approval-list"></div></section>
 </main>""",
@@ -194,6 +194,11 @@ async def route(worker, request, accounts, identity, path, method, body_data):
             return Response.json({"workspace_switched": True})
         await validate_scope(worker, identity, row)
         return Response.json(agent_auth.public_enrollment(row))
+    status_match = re.fullmatch(r"/api/v1/agent-enrollments/([a-f0-9-]+)/status", path)
+    if status_match and method == "GET":
+        return Response.json(
+            await agent_auth.enrollment_status(accounts, identity, status_match[1])
+        )
     match = re.fullmatch(
         r"/api/v1/agent-enrollments/([a-f0-9-]+)/(challenge|decision)", path
     )

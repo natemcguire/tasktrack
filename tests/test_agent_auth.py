@@ -250,3 +250,47 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             removed.exception.payload["error"]["code"], "enrollment_missing"
         )
+
+    async def test_connection_status_requires_owner_and_tracks_credential_collection(
+        self,
+    ):
+        started, row = await self.enroll()
+        status = await auth.enrollment_status(self.accounts, self.identity, row["id"])
+        self.assertEqual(status["status"], "approved")
+        self.assertNotIn("device_hash", status)
+        for changes in (
+            {"workspace_id": "other"},
+            {"user_id": "other"},
+            {"bearer": True},
+        ):
+            with self.assertRaises(Error):
+                await auth.enrollment_status(
+                    self.accounts, self.identity | changes, row["id"]
+                )
+        grant = await auth.poll(self.accounts, started["device_code"])
+        self.assertIn("access_token", grant)
+        self.assertEqual(
+            (await auth.enrollment_status(self.accounts, self.identity, row["id"]))[
+                "status"
+            ],
+            "connected",
+        )
+        await auth.revoke(self.accounts, self.identity, grant["agent_id"])
+        self.assertEqual(
+            (await auth.enrollment_status(self.accounts, self.identity, row["id"]))[
+                "status"
+            ],
+            "inactive",
+        )
+
+    async def test_expired_approval_is_not_reported_as_connected(self):
+        _, row = await self.enroll()
+        self.c.execute(
+            "UPDATE agent_enrollments SET expires_at=0 WHERE id=?", (row["id"],)
+        )
+        self.assertEqual(
+            (await auth.enrollment_status(self.accounts, self.identity, row["id"]))[
+                "status"
+            ],
+            "expired",
+        )
