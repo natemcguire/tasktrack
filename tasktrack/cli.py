@@ -35,6 +35,75 @@ def parser():
         common(p)
         return p
 
+    auth = sub(commands, "auth", "Enroll an agent with human approval").add_subparsers(
+        dest="operation", required=True
+    )
+    for name in ("login", "logout", "status"):
+        p = sub(auth, name)
+        p.add_argument("--url")
+        if name == "login":
+            p.add_argument("--workspace", required=True)
+            p.add_argument("--name", required=True)
+            p.add_argument("--project", type=int, action="append", required=True)
+            p.add_argument("--capability", action="append")
+            p.add_argument("--owner-email")
+    bridge = sub(
+        commands,
+        "message-bridge",
+        "Deliver your queued iMessages from this signed-in Mac",
+    )
+    bridge.add_argument("--url")
+    bridge.add_argument("--once", action="store_true")
+    approvals = sub(
+        commands, "approval", "Request and execute human-approved actions"
+    ).add_subparsers(dest="operation", required=True)
+    sub(approvals, "list")
+    p = sub(approvals, "request")
+    p.add_argument(
+        "action",
+        choices=[
+            "task.archive",
+            "task.reopen",
+            "task.restore",
+            "task.reassign",
+            "task.backlog",
+        ],
+    )
+    p.add_argument("task_id", type=int)
+    p.add_argument("--version", type=int, required=True)
+    p.add_argument("--reason", required=True)
+    p.add_argument("--assignee")
+    p.add_argument("--reopen-parent", action="store_true")
+    for name in ("get", "execute"):
+        sub(approvals, name).add_argument("id")
+    imports = sub(
+        commands, "import", "Preview and import provider exports"
+    ).add_subparsers(dest="operation", required=True)
+    for name in ("normalize", "preview"):
+        p = sub(imports, name)
+        p.add_argument(
+            "--provider",
+            choices=["jira", "trello", "basecamp", "kanban"],
+            required=True,
+        )
+        p.add_argument("--file", required=True)
+        p.add_argument("--mapping-file")
+        p.add_argument("--account-id", default="file")
+        if name == "normalize":
+            p.add_argument("--output", required=True)
+        else:
+            p.add_argument("--project", required=True)
+            p.add_argument("--approve-destination-access", action="store_true")
+    sub(imports, "list")
+    for name in ("get", "commit", "resume", "cancel"):
+        p = sub(imports, name)
+        p.add_argument("id")
+        if name != "get":
+            p.add_argument("--digest", required=True)
+    p = sub(imports, "upload")
+    p.add_argument("id")
+    p.add_argument("files", nargs="+")
+
     server = sub(commands, "serve", "Serve the browser UI and API")
     server.add_argument("--host", default="127.0.0.1")
     server.add_argument("--port", type=int, default=7777)
@@ -138,6 +207,14 @@ def parser():
 
 
 def execute(args):
+    if args.command == "auth":
+        from .credentials import command
+
+        return command(args)
+    if args.command == "message-bridge":
+        from .message_bridge import command
+
+        return command(args)
     remote_url = os.environ.get("TT_URL")
     if remote_url and args.command in {"serve", "backup", "restore"}:
         raise Error(
@@ -148,9 +225,12 @@ def execute(args):
     if args.command == "restore":
         return Store.restore(args.source, args.destination)
     if remote_url:
+        from .credentials import access_token
         from .remote import RemoteService
 
-        service = RemoteService(remote_url, os.environ.get("TT_TOKEN"))
+        service = RemoteService(
+            remote_url, os.environ.get("TT_TOKEN") or access_token(remote_url)
+        )
     else:
         store = Store(getattr(args, "data_dir", None))
         if args.command == "backup":
@@ -195,6 +275,107 @@ def execute(args):
 
     if args.command == "health":
         return read("health")
+    if args.command == "approval":
+        if args.operation == "list":
+            return read("approval-requests")
+        if args.operation == "get":
+            return read("approval-requests/" + args.id)
+        if args.operation == "execute":
+            return write("approval-requests/" + args.id + "/execute", {})
+        return write(
+            "approval-requests",
+            {
+                "operation": args.action,
+                **(
+                    {"assignee": None if args.assignee == "null" else args.assignee}
+                    if args.action == "task.reassign"
+                    else {}
+                ),
+                **({"reopen_parent": True} if args.reopen_parent else {}),
+                "task_id": args.task_id,
+                "expected_version": args.version,
+                "reason": args.reason,
+            },
+        )
+    if args.command == "import":
+        from .providers import normalize
+
+        if args.operation == "list":
+            return read("import-jobs")
+        if args.operation == "get":
+            return read("import-jobs/" + args.id)
+        if args.operation in ("commit", "resume", "cancel"):
+            return write(
+                "import-jobs/" + args.id + "/" + args.operation, {"digest": args.digest}
+            )
+        if args.operation == "upload":
+            import hashlib
+
+            result = []
+            for filename in args.files:
+                content = Path(filename).read_bytes()
+                sha = hashlib.sha256(content).hexdigest()
+                if len(content) > 10 * 1024 * 1024:
+                    raise Error(413, "file_size", "Files must be 10 MiB or smaller.")
+                if remote_url:
+                    result.append(
+                        service.request(
+                            "/api/v1/import-jobs/" + args.id + "/files/" + sha,
+                            "POST",
+                            content,
+                            {
+                                "Idempotency-Key": str(uuid.uuid4()),
+                                "Content-Type": "application/octet-stream",
+                            },
+                        )[1]
+                    )
+                else:
+                    service.store.put_blob(content)
+                    result.append(
+                        write(
+                            "import-jobs/" + args.id + "/blob",
+                            {"sha256": sha, "size": len(content)},
+                        )
+                    )
+            return {"files": result}
+        raw = Path(args.file).read_text()
+        source = raw if Path(args.file).suffix.lower() == ".csv" else json.loads(raw)
+        mapping = (
+            json.loads(Path(args.mapping_file).read_text()) if args.mapping_file else {}
+        )
+        if args.operation == "normalize":
+            from .imports import validate
+
+            dataset = validate(
+                normalize(args.provider, source, args.account_id, mapping)
+            )
+            Path(args.output).write_text(json.dumps(dataset, indent=2))
+            return {
+                "output": args.output,
+                "records": len(dataset["records"]),
+                "warnings": dataset["warnings"],
+            }
+        pid = read("projects/" + args.project)["id"]
+        if remote_url:
+            return write(
+                "import-previews",
+                {
+                    "provider": args.provider,
+                    "source": source,
+                    "mapping": mapping,
+                    "account_id": args.account_id,
+                    "project_id": pid,
+                    "allow_visibility_change": args.approve_destination_access,
+                },
+            )
+        return write(
+            "import-jobs",
+            {
+                "dataset": normalize(args.provider, source, args.account_id, mapping),
+                "project_id": pid,
+                "allow_visibility_change": args.approve_destination_access,
+            },
+        )
     if args.command in {"brief", "events"}:
         query = {
             k: getattr(args, k, None)

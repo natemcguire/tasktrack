@@ -26,6 +26,110 @@ def user_handle(uid):
     return base64.urlsafe_b64encode(uid.encode()).decode().rstrip("=")
 
 
+async def step_up_options(accounts, identity, binding):
+    from .agent_auth import browser
+
+    browser(identity)
+    await accounts.limit("human-challenge:" + identity["user_id"], 30)
+    keys = await accounts.many(
+        "SELECT id FROM passkeys WHERE user_id=?", identity["user_id"]
+    )
+    if not keys:
+        raise Error(
+            403,
+            "passkey_required",
+            "Add a passkey in Account settings before approving agent access.",
+        )
+    secret, challenge = token(), token()
+    await accounts.run(
+        "INSERT INTO human_challenges VALUES(?,?,?,?,?,?)",
+        digest(secret),
+        challenge,
+        identity["user_id"],
+        identity["session_hash"],
+        binding,
+        timestamp() + 300,
+    )
+    return {
+        "challenge_id": secret,
+        "options": {
+            "challenge": challenge,
+            "rpId": urlsplit(accounts.origin).hostname,
+            "timeout": 60000,
+            "userVerification": "required",
+            "allowCredentials": [
+                {"id": key["id"], "type": "public-key"} for key in keys
+            ],
+        },
+    }
+
+
+async def step_up_verify(accounts, identity, binding, data):
+    from .agent_auth import browser
+
+    browser(identity)
+    cid = data.get("challenge_id")
+    if not isinstance(cid, str) or len(cid) > 200:
+        raise Error(422, "challenge_required", "Begin a new approval confirmation.")
+    row = await accounts.one(
+        "DELETE FROM human_challenges WHERE id_hash=? AND user_id=? AND session_hash=? AND binding=? AND expires_at>? RETURNING *",
+        digest(cid),
+        identity["user_id"],
+        identity["session_hash"],
+        binding,
+        timestamp(),
+    )
+    if not row:
+        raise Error(
+            400,
+            "challenge_expired",
+            "Approval confirmation expired or changed. Review it again.",
+        )
+    response = data.get("credential")
+    if (
+        not isinstance(response, dict)
+        or not isinstance(response.get("id"), str)
+        or len(json.dumps(response)) > 100000
+    ):
+        raise Error(422, "passkey_invalid", "Invalid passkey response.")
+    key = await accounts.one(
+        "SELECT * FROM passkeys WHERE id=? AND user_id=?",
+        response["id"],
+        identity["user_id"],
+    )
+    if not key:
+        raise Error(403, "passkey_invalid", "Use a passkey belonging to this account.")
+    verifier = import_from_javascript("passkey-server.mjs")
+    result = json.loads(
+        await verifier.verify(
+            json.dumps(
+                {
+                    "kind": "login",
+                    "response": response,
+                    "challenge": row["challenge"],
+                    "origin": accounts.origin,
+                    "rpID": urlsplit(accounts.origin).hostname,
+                    "credential": key,
+                }
+            )
+        )
+    )
+    if not result.get("verified"):
+        raise Error(403, "passkey_invalid", "Passkey verification failed.")
+    updated = await accounts.one(
+        "UPDATE passkeys SET counter=?,last_used_at=? WHERE id=? AND user_id=? AND counter=? RETURNING id",
+        result["counter"],
+        timestamp(),
+        key["id"],
+        identity["user_id"],
+        key["counter"],
+    )
+    if not updated:
+        raise Error(
+            409, "passkey_changed", "Passkey changed. Review this request again."
+        )
+
+
 async def browser_identity(accounts, request):
     identity = await accounts.authenticate(request)
     if not identity:
