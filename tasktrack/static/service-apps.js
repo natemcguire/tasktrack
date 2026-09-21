@@ -13,7 +13,14 @@ async function api(path, body) {
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = await r.json();
+  let data;
+  try {
+    data = await r.json();
+  } catch {
+    throw new Error(
+      "The server response was interrupted. Refresh to check the result before trying again.",
+    );
+  }
   if (!r.ok) throw new Error(data.error?.message || "Request failed.");
   return data;
 }
@@ -72,6 +79,10 @@ async function perform(fn) {
 }
 function credential(data) {
   document.querySelector("#app-secret").hidden = false;
+  document.querySelector("#app-copy-status").textContent = "";
+  document
+    .querySelector("#app-secret")
+    .scrollIntoView({ behavior: "smooth", block: "start" });
   document.querySelector("#app-credential").textContent = JSON.stringify(
     {
       client_id: data.client_id,
@@ -86,10 +97,29 @@ document.querySelector("#app-hide").onclick = () => {
   document.querySelector("#app-credential").textContent = "";
   document.querySelector("#app-secret").hidden = true;
 };
+document.querySelector("#app-copy").onclick = async () => {
+  const status = document.querySelector("#app-copy-status");
+  try {
+    await navigator.clipboard.writeText(
+      document.querySelector("#app-credential").textContent,
+    );
+    status.textContent = "Copied. Save it in your app server’s secret store.";
+  } catch {
+    status.textContent =
+      "Copy is unavailable. Select the credential below and copy it manually.";
+  }
+};
 async function list() {
   const target = document.querySelector("#app-list");
   target.replaceChildren();
-  for (const app of (await api("/service-apps")).items) {
+  const apps = (await api("/service-apps")).items;
+  if (!apps.length)
+    el(
+      "p",
+      "No apps connected yet. Create a connection above to get started.",
+      target,
+    );
+  for (const app of apps) {
     const row = el("div", "", target);
     el("h3", app.name, row);
     el(

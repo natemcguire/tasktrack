@@ -186,7 +186,10 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         )
         row = self.c.execute("SELECT body FROM local_mail").fetchone()
         self.assertNotIn(start["device_code"], row["body"])
-        self.assertNotIn(start["user_code"], row["body"])
+        # A public pairing code opens review only; the private polling secret
+        # must never leave the requesting device.
+        self.assertIn(start["user_code"], row["body"])
+        self.assertNotIn(start["device_code"], start["verification_uri_complete"])
         self.assertIn("/agents", row["body"])
 
     async def test_explicit_unknown_owner_cannot_be_claimed_by_another_member(self):
