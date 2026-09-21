@@ -13,7 +13,14 @@ async function api(path, body) {
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = await r.json();
+  let data;
+  try {
+    data = await r.json();
+  } catch {
+    throw new Error(
+      "The server response was interrupted. Refresh to check the result before trying again.",
+    );
+  }
   if (!r.ok) throw new Error(data.error?.message || "Request failed.");
   return data;
 }
@@ -75,6 +82,33 @@ async function attempt(button, fn) {
     button.disabled = false;
   }
 }
+const capabilityLabels = {
+  "project.read": "View projects",
+  "work.read": "View tasks",
+  "work.edit": "Edit tasks",
+  "work.execute": "Work on tasks",
+  "work.accept": "Review completed work",
+  "notes.read": "Read comments and files",
+  "notes.write": "Add comments and files",
+  "notifications.deliver": "Deliver your notifications",
+  "integrations.manage": "Manage imports",
+};
+const friendlyCapabilities = (caps) =>
+  caps.map((c) => capabilityLabels[c] || c).join(", ");
+const projectNames = new Map();
+const projectNamesReady = (async () => {
+  let cursor;
+  do {
+    const page = await api(
+      "/projects?limit=200" +
+        (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""),
+    );
+    for (const p of page.items) projectNames.set(String(p.id), p.name);
+    cursor = page.has_more ? page.next_cursor : null;
+  } while (cursor);
+})().catch(() => {});
+const friendlyProjects = (ids) =>
+  ids.map((id) => projectNames.get(String(id)) || "Project " + id).join(", ");
 const progress = document.querySelector("#agent-progress");
 const progressTitle = document.querySelector("#agent-progress-title");
 const progressDetail = document.querySelector("#agent-progress-detail");
@@ -158,15 +192,23 @@ document.querySelector("#agent-code-form").onsubmit = (e) => {
     const box = document.querySelector("#agent-details");
     box.replaceChildren();
     line(box, "Agent: " + current.name);
-    line(box, "Projects: " + current.project_ids.join(", "));
-    line(box, "Permissions: " + current.capabilities.join(", "));
+    await projectNamesReady;
+    line(box, "Projects: " + friendlyProjects(current.project_ids));
+    line(box, "Access: " + friendlyCapabilities(current.capabilities));
     line(
       box,
       "Request expires: " +
         new Date(current.expires_at * 1000).toLocaleString(),
     );
     line(box, "Access lasts up to 30 days. You can revoke it at any time.");
+    document.querySelector("#agent-approve").disabled = false;
     document.querySelector("#agent-review").hidden = false;
+    document
+      .querySelector("#agent-code-form")
+      .closest(".setup-primary").hidden = true;
+    document
+      .querySelector("#agent-review")
+      .scrollIntoView({ behavior: "smooth", block: "start" });
   });
 };
 for (const decision of ["approve", "deny"]) {
@@ -210,6 +252,7 @@ for (const decision of ["approve", "deny"]) {
 async function loadAgents() {
   const box = document.querySelector("#agent-list");
   const result = await api("/agents");
+  await projectNamesReady;
   box.replaceChildren();
   if (!result.items.length) line(box, "No registered agents yet.");
   for (const item of result.items) {
@@ -222,8 +265,8 @@ async function loadAgents() {
           ? "Revoked"
           : "Expires " + new Date(item.expires_at * 1000).toLocaleDateString()),
     );
-    line(section, "Projects: " + JSON.parse(item.projects).join(", "));
-    line(section, JSON.parse(item.capabilities).join(", "));
+    line(section, "Projects: " + friendlyProjects(JSON.parse(item.projects)));
+    line(section, friendlyCapabilities(JSON.parse(item.capabilities)));
     if (!item.revoked_at) {
       const b = document.createElement("button");
       b.className = "button";
@@ -259,7 +302,28 @@ async function loadApprovals() {
         " · expires " +
         new Date(item.expires_at * 1000).toLocaleString(),
     );
-    line(section, JSON.stringify(item.manifest));
+    line(
+      section,
+      "Reason: " + (item.manifest.body.reason || "No reason supplied."),
+    );
+    if (item.manifest.operation === "task.reassign")
+      line(
+        section,
+        "New assignee: " + (item.manifest.body.assignee || "Unassigned"),
+      );
+    if (item.manifest.parent)
+      line(section, "Also reopens: " + item.manifest.parent.title);
+    const target = document.createElement("a");
+    target.href = "/tasks/" + encodeURIComponent(item.manifest.task_id);
+    target.textContent = "View task";
+    section.append(target);
+    const technical = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "Exact action details";
+    const manifest = document.createElement("pre");
+    manifest.textContent = JSON.stringify(item.manifest, null, 2);
+    technical.append(summary, manifest);
+    section.append(technical);
     for (const decision of ["approve", "deny"]) {
       const b = document.createElement("button");
       b.className = "button";
@@ -347,7 +411,12 @@ Promise.all([
   message.textContent = e.message;
 });
 
-const savedEnrollmentCode = sessionStorage.getItem("tasktrack-enrollment-code");
+const linkCode = new URLSearchParams(location.hash.slice(1)).get("code");
+const savedEnrollmentCode = /^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(linkCode || "")
+  ? linkCode
+  : sessionStorage.getItem("tasktrack-enrollment-code");
+if (linkCode)
+  history.replaceState(null, "", location.pathname + location.search);
 if (savedEnrollmentCode) {
   sessionStorage.removeItem("tasktrack-enrollment-code");
   document.querySelector("#agent-code").value = savedEnrollmentCode;
@@ -357,3 +426,29 @@ if (savedEnrollmentCode) {
 const savedEnrollmentStatus = sessionStorage.getItem(progressKey);
 if (savedEnrollmentStatus && !savedEnrollmentCode)
   monitorConnection(savedEnrollmentStatus);
+
+setInterval(() => {
+  if (!current?.expires_at || document.querySelector("#agent-review").hidden)
+    return;
+  const seconds = Math.max(
+    0,
+    Math.ceil(current.expires_at - Date.now() / 1000),
+  );
+  const expiry = document.querySelector("#agent-expiry");
+  expiry.textContent = seconds
+    ? `Complete approval within ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}.`
+    : "This request expired. Ask your agent for a new connection link.";
+  if (!seconds) document.querySelector("#agent-approve").disabled = true;
+}, 1000);
+window.addEventListener("hashchange", () => {
+  const code = new URLSearchParams(location.hash.slice(1)).get("code");
+  if (/^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(code || "")) location.reload();
+});
+
+document.querySelector("#agent-change").onclick = () => {
+  current = null;
+  document.querySelector("#agent-review").hidden = true;
+  document.querySelector("#agent-code-form").closest(".setup-primary").hidden =
+    false;
+  document.querySelector("#agent-code").focus();
+};

@@ -145,10 +145,11 @@ def command(args):
         raise Error(400, "enrollment_failed", str(result["error"]))
     print(
         "Open "
-        + result["verification_uri"]
-        + " and enter "
+        + result.get("verification_uri_complete", result["verification_uri"])
+        + ". Review access and approve with your passkey. "
+        + "Manual code: "
         + result["user_code"]
-        + ". Review access and approve with your passkey.",
+        + ".",
         file=sys.stderr,
         flush=True,
     )

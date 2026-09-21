@@ -88,6 +88,11 @@ try {
   ).data;
   assert.ok(project.id);
   await page.goto(origin + "/apps");
+  await expect(page.locator("[data-project]")).toHaveCount(1);
+  await page.screenshot({
+    path: "/tmp/tasktrack-app-setup-phone.png",
+    fullPage: true,
+  });
   await page.locator("#app-name").fill("Internal dashboard test");
   await page.locator("[data-project]").check();
   await page.getByRole("button", { name: "Create with passkey" }).click();
@@ -228,13 +233,12 @@ try {
   await expect(
     page.getByText("Other test workspace", { exact: true }),
   ).toBeVisible();
-  await page
-    .getByLabel("Code shown by your agent")
-    .fill(enrollment.data.user_code);
-  await page
-    .getByRole("button", { name: "Review request", exact: true })
-    .click();
+  await page.goto(enrollment.data.verification_uri_complete);
   await expect(page.locator("#agent-review")).toBeVisible();
+  await page.screenshot({
+    path: "/tmp/tasktrack-agent-setup-phone.png",
+    fullPage: true,
+  });
   csrf = await page.locator('meta[name="tt-csrf"]').getAttribute("content");
   assert.equal((await api("/api/v1/me")).data.workspace_id, me.workspace_id);
   assert.equal((await api("/api/v1/agents")).data.items.length, 0);

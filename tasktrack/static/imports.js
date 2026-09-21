@@ -17,7 +17,14 @@ async function api(path, body, raw = false) {
     },
     body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
   });
-  const value = await r.json();
+  let value;
+  try {
+    value = await r.json();
+  } catch {
+    throw new Error(
+      "The server response was interrupted. Check Recent imports before trying again.",
+    );
+  }
   if (!r.ok) throw new Error(value.error?.message || "Request failed.");
   return value;
 }
@@ -44,7 +51,16 @@ async function run(button, fn) {
     button.disabled = false;
   }
 }
+function importStep(step) {
+  for (const name of ["source", "map", "review"]) {
+    const el = document.querySelector("#import-step-" + name);
+    if (name === step) el.setAttribute("aria-current", "step");
+    else el.removeAttribute("aria-current");
+  }
+}
 function mappings(statuses) {
+  document.querySelector("#import-destination").hidden = false;
+  importStep("map");
   const box = document.querySelector("#import-mappings");
   box.replaceChildren();
   for (const [name, current] of statuses) {
@@ -73,14 +89,23 @@ function selectedMapping() {
   );
 }
 function details(value) {
+  importStep("review");
   job = value;
+  document.querySelector("#import-source-panel").open = false;
+  document.querySelector("#import-destination").hidden = true;
+  const finished = ["complete", "partial", "rolled_back"].includes(value.state);
+  document.querySelector("#import-file-upload").hidden =
+    finished || !value.attachments.length;
+  document.querySelector("#import-cancel").hidden = finished;
+  document.querySelector("#import-rollback").hidden =
+    !value.report.created || value.state === "rolled_back";
   renderPeople(value);
   document.querySelector("#import-review").hidden = false;
   const box = document.querySelector("#import-summary");
   box.replaceChildren();
   node(
     "p",
-    `${value.state} · ${value.cursor} of ${value.total} source records processed`,
+    `${{ preview: "Ready to review", complete: "Imported", partial: "Imported with gaps", cancelled: "Paused", rolled_back: "Rolled back" }[value.state] || "Import in progress"} · ${value.cursor} of ${value.total} source records processed`,
     box,
   );
   node(
@@ -118,7 +143,13 @@ document.querySelector("#import-analyze").onclick = (e) =>
     if (f.size > 2 * 1024 * 1024)
       throw new Error("Choose a file under 2 MiB or use a connected service.");
     const text = await f.text();
-    source = f.name.toLowerCase().endsWith(".csv") ? text : JSON.parse(text);
+    try {
+      source = f.name.toLowerCase().endsWith(".csv") ? text : JSON.parse(text);
+    } catch {
+      throw new Error(
+        "This file is not valid JSON. Choose a JSON export or a CSV file.",
+      );
+    }
     connected = null;
     const analyzed = await api("/import-analyze", {
       provider: document.querySelector("#import-provider").value,
@@ -440,6 +471,12 @@ async function showSavedFetches() {
   try {
     const saved = await api("/import-fetches");
     box.replaceChildren();
+    if (!saved.items.some((f) => ["pending", "fetching"].includes(f.state)))
+      node(
+        "p",
+        "No interrupted source fetches. New imports will appear here if you leave before they finish.",
+        box,
+      );
     for (const fetch of saved.items.filter((f) =>
       ["pending", "fetching"].includes(f.state),
     )) {

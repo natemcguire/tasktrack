@@ -131,7 +131,11 @@ async def start(accounts, data, ip):
                     "enrollment:" + eid,
                     "Your agent wants to authenticate with Tasktrack. Review "
                     + accounts.origin
-                    + "/agents and enter the code shown by your agent. Approve only if you initiated the request.",
+                    + "/agents#code="
+                    + code[:4]
+                    + "-"
+                    + code[4:]
+                    + ". Approve only if you initiated the request.",
                 )
         except Error:
             pass  # Enrollment remains usable via the local URL; don't enumerate accounts.
@@ -139,6 +143,11 @@ async def start(accounts, data, ip):
         "device_code": device,
         "user_code": code[:4] + "-" + code[4:],
         "verification_uri": accounts.origin + "/agents",
+        "verification_uri_complete": accounts.origin
+        + "/agents#code="
+        + code[:4]
+        + "-"
+        + code[4:],
         "expires_in": 900,
         "interval": 5,
     }
