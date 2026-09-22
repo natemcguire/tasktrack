@@ -68,6 +68,16 @@ class Access:
                 capabilities=frozenset(json.loads(row["capabilities"])),
             )
         )
+        # An administrator explicitly grants these projects to the workspace app.
+        # The app has no human membership and cannot inherit tenant-wide access.
+        if self.identity.get("app_id") and str(project_id) in self.identity.get(
+            "token_project_ids", []
+        ):
+            grant = ProjectGrant(
+                project_id=str(project_id),
+                membership_id=self.member.id,
+                tenant_id=self.tenant_id,
+            )
         return project, grant
 
     def allowed(self, c, action, project_id=None, resource=Resource()):

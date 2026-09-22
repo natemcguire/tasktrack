@@ -719,19 +719,55 @@ function actionForm(task, action) {
 }
 async function moveForm(task, initial = task.status, beforeId = undefined) {
   if (task._summary) task = await api(`/tasks/${task.id}`);
+  const config =
+    state.boardConfigurationProject === task.project_id
+      ? state.boardConfiguration
+      : await api(`/projects/${task.project_id}/columns`);
+  const custom =
+    config &&
+    (config.columns.length !== 4 ||
+      config.columns.some(
+        (c, i) =>
+          c.name.toLowerCase() !== Object.values(states)[i]?.toLowerCase() ||
+          c.allowed_phases?.length !== 1,
+      ));
+  const columns = config?.columns || [];
+  const selectedColumn = (key) =>
+    custom
+      ? columns.find((c) => "c" + c.id === key)
+      : columns.find((c) => c.allowed_phases?.includes(key));
+  if (custom && !String(initial).startsWith("c"))
+    initial = "c" + task.column_id;
+  const nextPhase = (key) => {
+    const c = selectedColumn(key);
+    return c?.allowed_phases?.includes(task.status)
+      ? task.status
+      : c?.allowed_phases?.[0] || key;
+  };
   showForm(
     `Move ${task.reference}`,
-    select("status", "Column", Object.entries(states), initial) +
+    select(
+      "status",
+      "Column",
+      custom
+        ? columns.map((c) => ["c" + c.id, c.name])
+        : Object.entries(states),
+      initial,
+    ) +
       '<div id="move-requirements"></div>' +
       select("before_id", "Position", [["", "At the end of the column"]]),
     async (f, version, requestId) => {
-      const next = f.get("status"),
+      const selection = f.get("status"),
+        next = nextPhase(selection),
         act = transitionAction(task.status, next);
       await api(`/tasks/${task.id}/move`, {
         method: "POST",
         body: {
           expected_version: version,
           status: next,
+          ...(selectedColumn(selection)
+            ? { column_id: selectedColumn(selection).id }
+            : {}),
           before_id: f.get("before_id") ? Number(f.get("before_id")) : null,
           ...actionBody(f, act),
         },
@@ -744,7 +780,8 @@ async function moveForm(task, initial = task.status, beforeId = undefined) {
   let token = 0;
   const refresh = async () => {
     const current = ++token;
-    const next = $('[name="status"]', $("#editor")).value;
+    const selection = $('[name="status"]', $("#editor")).value;
+    const next = nextPhase(selection);
     const position = $('[name="before_id"]', $("#editor"));
     position.disabled = true;
     $("#save-dialog").disabled = true;
@@ -754,7 +791,7 @@ async function moveForm(task, initial = task.status, beforeId = undefined) {
     );
     try {
       const items = await allPages(
-        `/tasks?project_id=${task.project_id}&status=${next}`,
+        `/tasks?project_id=${task.project_id}&${selectedColumn(selection) ? "column_id=" + selectedColumn(selection).id : "status=" + next}`,
       );
       if (current !== token) return;
       position.innerHTML = options(
@@ -929,14 +966,45 @@ async function loadBoard() {
     if (
       generation !== state.generation ||
       state.project?.id !== projectId ||
-      !$("#cards-backlog")
+      !$(".board")
     )
       return;
-    for (const status of Object.keys(states)) {
+    state.boardConfiguration = result.configuration;
+    state.boardConfigurationProject = projectId;
+    state.columns = {};
+    const configured = result.configured_columns;
+    $(".board").classList.toggle("custom-columns", Boolean(configured));
+    const definitions = configured
+      ? result.configuration.columns.map((c) => [
+          "c" + c.id,
+          c.name,
+          c.allowed_phases?.[0] || "backlog",
+          c.id,
+        ])
+      : Object.entries(states).map(([key, title]) => [key, title, key, null]);
+    if (!definitions.some(([key]) => key === state.mobile))
+      state.mobile = definitions[0][0];
+    $("#mobile-columns").innerHTML = options(
+      definitions.map(([key, title]) => [key, title]),
+      state.mobile,
+    );
+    $(".board").innerHTML = definitions
+      .map(
+        ([key, title, phase]) =>
+          `<section class="column ${phase} ${state.mobile === key ? "mobile-active" : ""}" data-status="${key}" aria-label="${esc(title)}"><div class="column-head"><h2 class="column-title"><span class="status-dot"></span>${esc(title)} <span class="count" id="count-${key}">…</span></h2><button class="icon-button column-add" aria-label="Create backlog draft from ${esc(title)}" data-create>+</button></div><div class="cards" id="cards-${key}"></div><div id="more-${key}"></div></section>`,
+      )
+      .join("");
+    document
+      .querySelectorAll("[data-create]")
+      .forEach((b) => (b.onclick = () => taskForm()));
+    for (const [status, , phase, columnId] of definitions) {
       const columnQuery = new URLSearchParams(query);
-      columnQuery.set("status", status);
+      columnQuery.set(columnId ? "column_id" : "status", columnId || phase);
       columnQuery.set("view", "summary");
-      state.columns[status] = { ...result.columns[status], query: columnQuery };
+      state.columns[status] = {
+        ...(columnId ? configured[String(columnId)] : result.columns[status]),
+        query: columnQuery,
+      };
       renderColumn(status);
     }
     const epicOptions = options(
@@ -1641,28 +1709,40 @@ function renderAccess(project, access, participants, canEdit) {
 <label class="radio-row"><input type="radio" name="internal-access" value="all" ${restricted ? "" : "checked"}><span><strong>All team members</strong><small>Everyone on your team can open this project.</small></span></label>
 <label class="radio-row"><input type="radio" name="internal-access" value="restricted" ${restricted ? "checked" : ""}><span><strong>Only people you add</strong><small>Team members need to be added below to see this project.</small></span></label></fieldset>`
     : `<p class="muted">${restricted ? "Only added members can see this project." : "Everyone on your team can see this project."}</p>`;
-  section.innerHTML =
-    `<h2>Access</h2>${visibilityControl}<div id="grant-list"></div>${canEdit ? `<div class="access-add"><label for="grant-add">Add a team member</label><div class="settings-row"><select id="grant-add"><option value="">Choose someone…</option>${participants.filter((p) => !grants.some((g) => g.membership_id === p.membership_id)).map((p) => `<option value="${esc(p.membership_id)}">${esc(p.name || p.email)}</option>`).join("")}</select><button class="button" id="grant-add-btn" type="button">Add</button></div></div>` : ""}<div class="access-actions">${canEdit ? '<button class="button primary" id="access-save">Save access</button>' : ""}<p id="access-message" role="status"></p></div>`;
+  section.innerHTML = `<h2>Access</h2>${visibilityControl}<div id="grant-list"></div>${
+    canEdit
+      ? `<div class="access-add"><label for="grant-add">Add a team member</label><div class="settings-row"><select id="grant-add"><option value="">Choose someone…</option>${participants
+          .filter(
+            (p) => !grants.some((g) => g.membership_id === p.membership_id),
+          )
+          .map(
+            (p) =>
+              `<option value="${esc(p.membership_id)}">${esc(p.name || p.email)}</option>`,
+          )
+          .join(
+            "",
+          )}</select><button class="button" id="grant-add-btn" type="button">Add</button></div></div>`
+      : ""
+  }<div class="access-actions">${canEdit ? '<button class="button primary" id="access-save">Save access</button>' : ""}<p id="access-message" role="status"></p></div>`;
   const listEl = $("#grant-list");
   function paintGrants() {
     if (!grants.length) {
       listEl.innerHTML = `<p class="muted grant-empty">${restrictedNow() ? "No one is added yet. Add team members so they can see this project." : "No individual access set."}</p>`;
       return;
     }
-    listEl.innerHTML =
-      `<ul class="access-list">${grants
-        .map((g, i) => {
-          const person = byId.get(g.membership_id);
-          const name = person ? person.name || person.email : g.membership_id;
-          const role = canEdit
-            ? `<select data-grant-role="${i}" aria-label="Access level for ${esc(name)}"><option value="participant" ${g.access === "participant" ? "selected" : ""}>Participant</option><option value="manager" ${g.access === "manager" ? "selected" : ""}>Manager</option></select>`
-            : `<small>${esc(ACCESS_LABELS[g.access] || g.access)}</small>`;
-          const remove = canEdit
-            ? `<button class="button quiet" data-grant-remove="${i}" aria-label="Remove ${esc(name)}">Remove</button>`
-            : "";
-          return `<li><span class="grant-name">${esc(name)}</span>${role}${remove}</li>`;
-        })
-        .join("")}</ul>`;
+    listEl.innerHTML = `<ul class="access-list">${grants
+      .map((g, i) => {
+        const person = byId.get(g.membership_id);
+        const name = person ? person.name || person.email : g.membership_id;
+        const role = canEdit
+          ? `<select data-grant-role="${i}" aria-label="Access level for ${esc(name)}"><option value="participant" ${g.access === "participant" ? "selected" : ""}>Participant</option><option value="manager" ${g.access === "manager" ? "selected" : ""}>Manager</option></select>`
+          : `<small>${esc(ACCESS_LABELS[g.access] || g.access)}</small>`;
+        const remove = canEdit
+          ? `<button class="button quiet" data-grant-remove="${i}" aria-label="Remove ${esc(name)}">Remove</button>`
+          : "";
+        return `<li><span class="grant-name">${esc(name)}</span>${role}${remove}</li>`;
+      })
+      .join("")}</ul>`;
     if (canEdit) {
       listEl.querySelectorAll("[data-grant-role]").forEach((sel) => {
         sel.onchange = () => {
@@ -1673,7 +1753,9 @@ function renderAccess(project, access, participants, canEdit) {
         btn.onclick = () => {
           const i = +btn.dataset.grantRemove;
           const person = byId.get(grants[i].membership_id);
-          const name = person ? person.name || person.email : grants[i].membership_id;
+          const name = person
+            ? person.name || person.email
+            : grants[i].membership_id;
           if (
             confirm(
               `Remove ${name} from this project? They’ll be signed out of it on their next action.`,
@@ -1687,7 +1769,9 @@ function renderAccess(project, access, participants, canEdit) {
     }
   }
   function restrictedNow() {
-    const picked = section.querySelector('input[name="internal-access"]:checked');
+    const picked = section.querySelector(
+      'input[name="internal-access"]:checked',
+    );
     return picked ? picked.value === "restricted" : restricted;
   }
   paintGrants();
@@ -1757,7 +1841,8 @@ function renderAccess(project, access, participants, canEdit) {
         const reload = document.createElement("button");
         reload.className = "button";
         reload.textContent = "Load their version";
-        reload.onclick = () => renderAccess(project, current, participants, canEdit);
+        reload.onclick = () =>
+          renderAccess(project, current, participants, canEdit);
         notice.append(msg, reload);
         return;
       }
@@ -1919,7 +2004,13 @@ function renderColumns(project, config, canEdit) {
     paint();
   }
   $("#col-add").onclick = () => {
-    cols.push({ id: null, name: "New column", allowed_phases: ["backlog"], wip_limit: null, task_count: 0 });
+    cols.push({
+      id: null,
+      name: "New column",
+      allowed_phases: ["backlog"],
+      wip_limit: null,
+      task_count: 0,
+    });
     paint();
   };
   $("#columns-save").onclick = async () => {
@@ -1934,7 +2025,8 @@ function renderColumns(project, config, canEdit) {
     const phase_defaults = {};
     for (const [p] of PHASES) {
       if (defaults[p] != null && defaults[p] !== "") {
-        const resolved = idByKey.get(defaults[p]) ?? idByKey.get(String(defaults[p]));
+        const resolved =
+          idByKey.get(defaults[p]) ?? idByKey.get(String(defaults[p]));
         if (resolved != null) phase_defaults[p] = resolved;
       }
     }

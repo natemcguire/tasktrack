@@ -1763,3 +1763,6 @@ dialog::backdrop {
     animation: none;
   }
 }
+
+/* Imported workflows retain their named columns in one scrollable board. */
+.board.custom-columns { display: grid; grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(280px, 1fr); overflow-x: auto; padding-bottom: 12px; }
