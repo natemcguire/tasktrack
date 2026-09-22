@@ -1,0 +1,40 @@
+name: Deploy Tasktrack
+# Runs only after "Verify Tasktrack" (test.yml) succeeds on main.
+# main is protected: code only lands here via an approved, fully-tested PR,
+# and this gate ensures we never deploy a red build.
+on:
+  workflow_run:
+    workflows: ["Verify Tasktrack"]
+    types: [completed]
+    branches: [main]
+# Only one deploy at a time; never cancel an in-flight production deploy.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  deploy:
+    # Deploy only when the test run on main actually passed.
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: astral-sh/setup-uv@v6
+      - run: npm ci
+      - run: npm run deploy:cloudflare
+        env:
+          # account_id is already set in wrangler.jsonc; only the token is secret.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
