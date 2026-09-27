@@ -4,7 +4,7 @@ Node 20+. The package is in this repository and is not published to npm. From yo
 
 ## Server credentials
 
-Create a workspace-owned read-only app at `https://tasks.eastbayprojects.com/apps`. A workspace administrator chooses explicit projects and approves with a passkey. Save the one-time client secret in your server's secret store. Rotating or revoking the app immediately invalidates its access tokens.
+Create a workspace-owned read-only app at `https://tasks.nates-software.com/apps`. A workspace administrator chooses explicit projects and approves with a passkey. Save the one-time client secret in your server's secret store. Rotating or revoking the app immediately invalidates its access tokens.
 
 ```js
 import { TasktrackClient } from '@tasktrack/client';

@@ -7,7 +7,7 @@ Implemented September 20, 2026. Account settings links to `/agents` for enrollme
 Run:
 
 ```sh
-tt auth login --url https://tasks.eastbayprojects.com --workspace WORKSPACE_ID --name Codex --project PROJECT_ID --owner-email YOUR_EMAIL
+tt auth login --url https://tasks.nates-software.com --workspace WORKSPACE_ID --name Codex --project PROJECT_ID --owner-email YOUR_EMAIL
 ```
 
 Use repeated `--project` and `--capability` options to narrow access. The CLI displays a direct review link and short code. The direct link fills and reviews the code automatically; it never approves access. Only the public pairing code appears in its URL fragment, which the page clears after reading. On a signed-in browser, enter the code, review scope, then confirm with a fresh user-verified passkey. If another workspace is selected, lookup automatically routes to the request’s workspace when your account has active internal membership and satisfies any named-owner restriction. Routing does not approve access; the review and passkey are still required. The page shows the signed-in email so account mismatches are visible. Register a passkey in Account settings first. The code pairs the agent and browser; the passkey provides human verification. A link visit never approves access. The page distinguishes passkey confirmation, saved approval, and credential collection. “Agent connected” appears only after the server confirms the agent collected its credential. The latest request status survives page refreshes; expired or unconfirmed requests never appear connected. Browser-only `GET /api/v1/agent-enrollments/{id}/status` returns this state only to the request owner in its workspace.
@@ -37,8 +37,8 @@ Users can opt into email notifications and link phone channels on `/agents`. Pho
 Email uses the existing deployment email binding. SMS requires Worker secrets `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM`. iMessage uses a personal Mac bridge:
 
 ```sh
-tt auth login --url https://tasks.eastbayprojects.com --workspace WORKSPACE_ID --name 'Mac message bridge' --project PROJECT_ID --capability notifications.deliver
-tt message-bridge --url https://tasks.eastbayprojects.com
+tt auth login --url https://tasks.nates-software.com --workspace WORKSPACE_ID --name 'Mac message bridge' --project PROJECT_ID --capability notifications.deliver
+tt message-bridge --url https://tasks.nates-software.com
 ```
 
 Use a separate protected `TT_CONFIG_DIR` for a dedicated bridge credential. The Mac must be signed into Messages and grant macOS Automation permission when requested. Start the bridge before verifying the iMessage phone number. It claims only its owner's queued messages, checks channel/lease validity immediately before sending, and records ambiguous sends without automatic retry. This personal Mac adapter is not a general cloud iMessage service. Provider SMS delivery and real Mac delivery require live setup; automated tests use a local outbox and never send real phone messages.

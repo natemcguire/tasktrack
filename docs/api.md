@@ -4,7 +4,7 @@ The UI and API share `http://127.0.0.1:7777`. Start with `tt serve`; choose anot
 port using `--port`. V1 binds to loopback and rejects foreign browser origins/hosts.
 All UI assets are local. No wildcard CORS or external runtime service is required.
 
-The [hosted edition](cloudflare.md) uses `https://tasks.eastbayprojects.com` with
+The [hosted edition](cloudflare.md) uses `https://tasks.nates-software.com` with
 the same `/api/v1` routes. Send `Authorization: Bearer <agent-token>`; the token
 determines the workspace and actor. Hosted requests ignore `X-Actor`. The hosted
 CLI uses `TT_URL` and `TT_TOKEN`. Browser sessions require `X-CSRF-Token` for writes;

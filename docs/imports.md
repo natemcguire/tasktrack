@@ -21,7 +21,7 @@ Limits: 2 MiB browser upload, 5,000 records per job, 500 KiB per record, 10 MiB 
 
 ## Provider configuration
 
-Set Worker secrets `IMPORT_ENCRYPTION_KEY` (base64-encoded random 32 bytes), `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET`, `TRELLO_CLIENT_ID`, `TRELLO_CLIENT_SECRET`, `BASECAMP_CLIENT_ID`, and `BASECAMP_CLIENT_SECRET` for the desired providers. Register exact callbacks `https://tasks.eastbayprojects.com/integrations/{provider}/callback`.
+Set Worker secrets `IMPORT_ENCRYPTION_KEY` (base64-encoded random 32 bytes), `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET`, `TRELLO_CLIENT_ID`, `TRELLO_CLIENT_SECRET`, `BASECAMP_CLIENT_ID`, and `BASECAMP_CLIENT_SECRET` for the desired providers. Register exact callbacks `https://tasks.nates-software.com/integrations/{provider}/callback`.
 
 Jira uses OAuth 2.0 3LO with read scopes; Trello uses OAuth 2.0 with PKCE; Basecamp uses its web-server OAuth flow. Connections are bound to the human owner and workspace. Credentials are encrypted with AES-GCM and never returned to browsers or agents. Disconnect and membership revocation stop future fetches. Live provider consent and production import checks require configured applications; fixture tests do not establish those credentials work.
 
