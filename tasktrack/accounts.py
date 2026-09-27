@@ -56,6 +56,10 @@ class Accounts:
         self.local = urlsplit(self.origin).hostname in {"localhost", "127.0.0.1"}
         self.cookie_name = "tt_session" if self.local else "__Host-tt_session"
 
+    @property
+    def link_origin(self):
+        return getattr(self.env, "PUBLIC_URL", self.origin).rstrip("/")
+
     def statement(self, sql, *args):
         return self.db.prepare(sql).bind(*args)
 
@@ -430,7 +434,7 @@ class Accounts:
             timestamp(),
             timestamp() + 48 * 3600,
         )
-        return self.origin + "/invite/" + secret
+        return self.link_origin + "/invite/" + secret
 
     async def join(self, identity, secret):
         found = await self.one(

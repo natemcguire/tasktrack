@@ -1,6 +1,7 @@
 "use strict";
 const hosted = document.querySelector('meta[name="tt-context"]');
 const account = hosted ? JSON.parse(hosted.content) : null;
+const brandTitle = account?.brand_title || "Tasktrack";
 const $ = (q, root = document) => root.querySelector(q);
 const esc = (value) =>
   String(value ?? "").replace(
@@ -1157,7 +1158,7 @@ async function detail(identifier, navigation = state.navigation) {
   state.task = task;
   state.project = project;
   renderProjects();
-  document.title = `${task.reference} · ${task.title} · Tasktrack`;
+  document.title = `${task.reference} · ${task.title} · ${brandTitle}`;
   $("#breadcrumb").innerHTML =
     `<a href="/projects/${esc(state.project.key)}" data-nav>${esc(state.project.name)}</a> / ${esc(task.reference)}`;
   let actions = task.archived_at
@@ -2080,7 +2081,7 @@ function renderColumns(project, config, canEdit) {
 }
 async function projectIndex() {
   state.project = null;
-  document.title = "Projects · Tasktrack";
+  document.title = `Projects · ${brandTitle}`;
   $("#breadcrumb").textContent = "Projects";
   $("#main").innerHTML =
     `<div class="page-head"><div><h1>Projects</h1></div><button class="button primary" id="index-create">New project</button></div><a class="triage-entry" href="/triage" data-nav><strong>TRIAGE</strong><span>Recent work →</span></a><div class="project-grid">${state.projects.map((p) => `<a class="project-tile" href="/projects/${esc(p.key)}" data-nav><span class="eyebrow">${esc(p.key)}</span><h2>${esc(p.name)}</h2><span class="muted">Open project →</span></a>`).join("") || "<p>No projects yet. Create one to get started.</p>"}</div>`;
@@ -2088,7 +2089,7 @@ async function projectIndex() {
 }
 async function triage(cursor = null, append = false) {
   state.project = null;
-  document.title = "Triage · Tasktrack";
+  document.title = `Triage · ${brandTitle}`;
   $("#breadcrumb").textContent = "TRIAGE";
   const navigation = state.navigation;
   const page = await api(
@@ -2151,7 +2152,7 @@ async function route() {
       return;
     }
     history.replaceState({}, "", `/projects/${state.project.key}`);
-    document.title = `${state.project.name} · Tasktrack`;
+    document.title = `${state.project.name} · ${brandTitle}`;
     renderProjects();
     await board();
   } catch (error) {

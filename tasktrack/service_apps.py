@@ -97,7 +97,7 @@ async def create(accounts, identity, data):
         "app": public(await get(accounts, identity, aid)),
         "client_id": aid,
         "client_secret": secret,
-        "token_endpoint": accounts.origin + "/oauth/token",
+        "token_endpoint": accounts.link_origin + "/oauth/token",
     }
 
 
@@ -133,7 +133,7 @@ async def change(accounts, identity, row, operation):
         result.update(
             client_id=row["id"],
             client_secret=secret,
-            token_endpoint=accounts.origin + "/oauth/token",
+            token_endpoint=accounts.link_origin + "/oauth/token",
         )
     return result
 

@@ -158,3 +158,24 @@ class SSOTests(unittest.IsolatedAsyncioTestCase):
                         None,
                     )
                 self.assertEqual(exchange.await_count, 1)
+
+    def test_host_branding_and_canonical_links_keep_callback_origin(self):
+        from pathlib import Path
+
+        from tasktrack.hosted_pages import brand_html, page
+
+        for source in [
+            page("Account", "<p>Tasktrack user text</p>"),
+            Path("tasktrack/static/index.html").read_text(),
+        ]:
+            eastbay = brand_html(source, "tasks.eastbayprojects.com")
+            canonical = brand_html(source, "tasks.nates-software.com")
+            self.assertIn("Tasks · East Bay Projects</title>", eastbay)
+            self.assertIn("</span>East Bay Projects</a", eastbay)
+            self.assertIn("Tasks · Nate’s Software</title>", canonical)
+            self.assertIn("</span>Nate’s Software</a", canonical)
+            self.assertEqual(brand_html(source, "localhost"), source)
+        self.accounts.env.PUBLIC_URL = "https://tasks.nates-software.com"
+        self.accounts.origin = "https://tasks.eastbayprojects.com"
+        self.assertEqual(self.accounts.link_origin, "https://tasks.nates-software.com")
+        self.assertEqual(self.accounts.origin, "https://tasks.eastbayprojects.com")
