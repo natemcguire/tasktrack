@@ -1,19 +1,11 @@
 # Tasktrack on Cloudflare
 
-[tasks.eastbayprojects.com](https://tasks.eastbayprojects.com) runs the browser,
+[tasks.nates-software.com](https://tasks.nates-software.com) runs the browser,
 API, accounts, files and sign-in email on Cloudflare.
 
 ## Sign in and share
 
-Enter your email and use the six-digit code. Complete code entry or supported
-AutoFill submits automatically. The email also contains a fallback sign-in link
-that continues automatically in a visible browser. Both expire after 15 minutes
-and share one redemption: using either invalidates the other. Five incorrect
-code attempts lock that challenge; the fallback link remains available. GET/HEAD
-requests do not consume links; a browser submits POST to finish sign-in. A
-scanner that executes visible-page JavaScript can submit that POST too. Your
-first sign-in creates a workspace. Browser sessions last 30 days. The landing
-page lists projects and links to TRIAGE. See [private previews](previews.md).
+Production delegates sign-in to auth.nates-software.com. Nate's Software membership and the Tasktrack product grant are checked on every authenticated request, including API tokens. Legacy email/passkey sign-in is disabled in SSO mode. Existing accounts and workspaces are preserved. See [SSO tenancy](sso-tenancy.md).
 
 **Account** lets the owner rename the workspace, invite a teammate, remove a
 member and issue agent tokens. Each invitation works once and expires in 48 hours.
@@ -25,7 +17,7 @@ The customer page shows the task title, current status and your update. Its
 1200 × 630 image is a snapshot made when you share. Internal descriptions,
 comments, attachments, identities and agent checkpoints stay private.
 
-Anyone with a customer link can read it. Revoke it from the same dialog to stop
+In SSO mode, customer links also require an authorized Tasktrack session. Revoke it from the same dialog to stop
 serving both the page and image. A messaging app may retain an image it already
 downloaded. Open Graph metadata supports rich previews in apps such as Messages;
 the receiving app controls whether and when it displays them. See
@@ -37,7 +29,7 @@ Install `tt` as described in the [README](../README.md), then create a token und
 **Account → Agent access**:
 
 ```sh
-export TT_URL=https://tasks.eastbayprojects.com
+export TT_URL=https://tasks.nates-software.com
 export TT_TOKEN=your-token
 export TT_SESSION=checkout-1
 tt project list

@@ -249,6 +249,12 @@ class Accounts:
         )
 
     async def authenticate(self, request, preview_secret=None):
+        from .sso import authorize_identity
+
+        identity = await self._authenticate(request, preview_secret)
+        return await authorize_identity(self, identity)
+
+    async def _authenticate(self, request, preview_secret=None):
         authorization = request.headers.get("Authorization", "")
         bearer = authorization.startswith("Bearer ")
         secret = (
