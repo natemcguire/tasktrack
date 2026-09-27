@@ -179,3 +179,25 @@ class SSOTests(unittest.IsolatedAsyncioTestCase):
         self.accounts.origin = "https://tasks.eastbayprojects.com"
         self.assertEqual(self.accounts.link_origin, "https://tasks.nates-software.com")
         self.assertEqual(self.accounts.origin, "https://tasks.eastbayprojects.com")
+
+    async def test_global_logout_uses_hub_session_and_requires_success(self):
+        secret = await sso.create_session(self.accounts, self.exchange())
+        identity = {"session_hash": digest(secret)}
+        with patch.object(sso, "hub", AsyncMock(return_value={"ok": True})) as call:
+            self.assertEqual(
+                await sso.logout(self.accounts, identity),
+                "https://auth.nates-software.com/signed-out",
+            )
+            call.assert_awaited_once_with(
+                self.accounts,
+                "/session/logout",
+                {"token": "hub-token", "audience": "tasktrack"},
+            )
+        with patch.object(sso, "hub", AsyncMock(return_value={})):
+            with self.assertRaises(Error):
+                await sso.logout(self.accounts, identity)
+        self.assertIsNotNone(
+            await self.accounts.one(
+                "SELECT 1 FROM sessions WHERE token_hash=?", digest(secret)
+            )
+        )

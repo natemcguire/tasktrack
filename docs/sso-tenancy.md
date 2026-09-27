@@ -13,3 +13,5 @@ Deployment adds migration `0013_sso.sql` without deleting or rewriting existing 
 The deployment script prefers the ignored `wrangler.private.json`; keep its canonical route, aliases, `SSO_REQUIRED`, and `AUTH_HUB` binding aligned with `wrangler.jsonc`. Existing `preview.eastbayprojects.com` remains an isolated preview origin, whose document reads recheck the associated SSO session.
 
 The legacy `hello@tasks.eastbayprojects.com` sender remains configured for existing agent notifications; browser login email is sent by the central auth hub.
+
+Signing out calls the hub’s global browser logout endpoint before clearing the local session. All existing browser product tokens and hub sessions become invalid; a new explicit sign-in is required. Agent and service credentials retain their existing scopes and remain subject to live membership/product grants. A hub failure keeps the local session available to retry and never reports successful global logout.
