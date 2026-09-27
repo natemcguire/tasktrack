@@ -23,6 +23,7 @@ from tasktrack import (
     passkeys,
     previews,
     service_apps,
+    sso,
 )
 from tasktrack.access import Access
 from tasktrack.accounts import Accounts, digest, safe_next, timestamp, token
@@ -208,6 +209,10 @@ class Default(WorkerEntrypoint):
         accounts = Accounts(self.env)
         parsed = urlsplit(request.url)
         path = unquote(parsed.path)
+        aliases = getattr(self.env, "ALLOWED_ORIGINS", "").split(",")
+        request_origin = parsed.scheme + "://" + parsed.netloc
+        if request_origin in aliases:
+            accounts.origin = request_origin
         try:
             is_preview = (
                 not accounts.local
@@ -308,6 +313,7 @@ class Default(WorkerEntrypoint):
             in {
                 "/app.js",
                 "/auth.js",
+                "/sso.js",
                 "/preview.js",
                 "/passkeys.js",
                 "/style.css",
@@ -335,6 +341,10 @@ class Default(WorkerEntrypoint):
         if path == "/healthz" and method == "GET":
             await accounts.one("SELECT 1 FROM users LIMIT 1")
             return Response.json({"status": "ok", "storage": "cloudflare"})
+        if sso.enabled(accounts):
+            result = await sso.route(request, accounts, path, query, body_data, html, redirect)
+            if result is not None:
+                return result
         if path in {"/oauth/device_authorization", "/oauth/token"} and method == "POST":
             data = await body_data(request, form=True)
             ip = request.headers.get("CF-Connecting-IP", "local")
@@ -411,6 +421,8 @@ class Default(WorkerEntrypoint):
                 return redirect(next_path, accounts.cookie(session))
         shared = re.fullmatch(r"/s/([A-Za-z0-9_-]{43})(/preview.png)?", path)
         if shared and method == "GET":
+            if sso.enabled(accounts) and not await accounts.authenticate(request):
+                raise Error(401, "sign_in_required", "Sign in with Nate's Software SSO.")
             share = await accounts.one(
                 "SELECT * FROM shares WHERE token=? AND revoked_at IS NULL", shared[1]
             )
