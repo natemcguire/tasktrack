@@ -3,7 +3,7 @@
   history.replaceState(null, '', location.pathname);
   try {
     const response = await fetch('/auth/sso/callback', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
       body: JSON.stringify({token: fragment.get('token'), state: fragment.get('state')})
     });
     const result = await response.json();
