@@ -15,6 +15,7 @@
   "preview_urls": false,
   "routes": [
     { "pattern": "tasks.nates-software.com", "custom_domain": true },
+    { "pattern": "tasks.nates-software.com/*", "zone_name": "nates-software.com" },
     { "pattern": "tasks.eastbayprojects.com", "custom_domain": true }
   ],
   "services": [{ "binding": "AUTH_HUB", "service": "auth" }],
