@@ -554,10 +554,15 @@ class Default(WorkerEntrypoint):
             data = await body_data(request, form=True)
             accounts.csrf(request, identity, data)
             if path == "/auth/logout":
+                destination = (
+                    await sso.logout(accounts, identity)
+                    if sso.enabled(accounts)
+                    else "/login"
+                )
                 await accounts.run(
                     "DELETE FROM sessions WHERE token_hash=?", identity["session_hash"]
                 )
-                return redirect("/login", accounts.cookie("", clear=True))
+                return redirect(destination, accounts.cookie("", clear=True))
             if path == "/account/switch":
                 await accounts.switch(identity, data.get("workspace_id", ""))
                 return redirect("/")

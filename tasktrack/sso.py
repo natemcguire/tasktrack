@@ -229,3 +229,26 @@ async def route(request, accounts, path, query, body_data, html, redirect):
     if path.startswith("/auth/") and path != "/auth/logout":
         raise Error(403, "sso_required", "Sign in with Nate's Software SSO.")
     return None
+
+
+async def logout(accounts, identity):
+    row = await accounts.one(
+        "SELECT hub_token FROM sso_sessions WHERE session_hash=?",
+        identity["session_hash"],
+    )
+    if not row:
+        raise Error(
+            503,
+            "logout_unavailable",
+            "Could not sign out of all apps. Please try again.",
+        )
+    result = await hub(
+        accounts, "/session/logout", {"token": row["hub_token"], "audience": PRODUCT}
+    )
+    if result.get("ok") is not True:
+        raise Error(
+            503,
+            "logout_unavailable",
+            "Could not sign out of all apps. Please try again.",
+        )
+    return "https://auth.nates-software.com/signed-out"
