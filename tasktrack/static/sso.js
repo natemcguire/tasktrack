@@ -10,6 +10,7 @@
     if (!response.ok) throw new Error(result.error?.message || 'Sign-in failed.');
     location.replace(result.next || '/');
   } catch (error) {
-    document.getElementById('status').textContent = error.message + ' Return to /login to try again.';
+    document.getElementById('retry').hidden = false;
+    document.getElementById('status').textContent = error.message || 'Sign-in could not be completed. Please try again.';
   }
 })();

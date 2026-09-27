@@ -172,8 +172,8 @@ class SSOTests(unittest.IsolatedAsyncioTestCase):
             canonical = brand_html(source, "tasks.nates-software.com")
             self.assertIn("Tasks · East Bay Projects</title>", eastbay)
             self.assertIn("</span>East Bay Projects</a", eastbay)
-            self.assertIn("Tasks · Nate’s Software</title>", canonical)
-            self.assertIn("</span>Nate’s Software</a", canonical)
+            self.assertIn("Tasks</title>", canonical)
+            self.assertIn("</span>Tasks</a", canonical)
             self.assertEqual(brand_html(source, "localhost"), source)
         self.accounts.env.PUBLIC_URL = "https://tasks.nates-software.com"
         self.accounts.origin = "https://tasks.eastbayprojects.com"
