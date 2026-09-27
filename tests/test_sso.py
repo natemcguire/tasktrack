@@ -112,3 +112,49 @@ class SSOTests(unittest.IsolatedAsyncioTestCase):
             check.assert_awaited_once_with(self.accounts, sso.OWNER)
         with patch.object(sso, "entitlement", AsyncMock(return_value=False)):
             self.assertIsNone(await self.accounts.authenticate(request))
+
+    async def test_callback_state_is_bound_to_cookie_and_consumed_once(self):
+        from tasktrack.accounts import timestamp
+
+        state = "a" * 43
+        await self.accounts.run(
+            "INSERT INTO sso_states VALUES (?,?,?)",
+            digest(state),
+            "/account",
+            timestamp() + 60,
+        )
+        request = SimpleNamespace(
+            method="POST", headers={"Cookie": "__Host-tt_sso_state=" + state}
+        )
+        response = SimpleNamespace(json=lambda value, **kwargs: value)
+        with patch.dict("sys.modules", {"workers": SimpleNamespace(Response=response)}):
+            with patch.object(
+                sso, "hub", AsyncMock(return_value=self.exchange())
+            ) as exchange:
+                with self.assertRaises(Error):
+                    await sso.route(
+                        request,
+                        self.accounts,
+                        "/auth/sso/callback",
+                        {},
+                        AsyncMock(return_value={"state": "wrong", "token": "login"}),
+                        None,
+                        None,
+                    )
+                exchange.assert_not_awaited()
+                body = AsyncMock(return_value={"state": state, "token": "login"})
+                result = await sso.route(
+                    request, self.accounts, "/auth/sso/callback", {}, body, None, None
+                )
+                self.assertEqual(result["next"], "/account")
+                with self.assertRaises(Error):
+                    await sso.route(
+                        request,
+                        self.accounts,
+                        "/auth/sso/callback",
+                        {},
+                        body,
+                        None,
+                        None,
+                    )
+                self.assertEqual(exchange.await_count, 1)
