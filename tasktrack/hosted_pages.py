@@ -198,14 +198,14 @@ def share_page(share, task, origin):
 
 def brand_for_host(hostname):
     names = {
-        "tasks.nates-software.com": ("Nate’s Software", "NS"),
+        "tasks.nates-software.com": ("Tasks", "T"),
         "tasks.eastbayprojects.com": ("East Bay Projects", "EB"),
     }
     name, mark = names.get(hostname, ("Tasktrack", "t."))
     return {
         "name": name,
         "mark": mark,
-        "title": "Tasks · " + name if hostname in names else name,
+        "title": "Tasks · " + name if hostname in names and name != "Tasks" else name,
     }
 
 

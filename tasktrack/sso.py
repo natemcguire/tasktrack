@@ -3,10 +3,12 @@
 import json
 import secrets
 import uuid
+from html import escape
 from urllib.parse import urlencode
 
 from .accounts import SESSION_AGE, cookie_value, digest, safe_next, timestamp, token
 from .db import Error
+from .hosted_pages import page
 
 PRODUCT = "tasktrack"
 TENANT = "nates-software"
@@ -170,6 +172,20 @@ async def route(request, accounts, path, query, body_data, html, redirect):
     from workers import Response
 
     if path in {"/login", "/signup"} and request.method in {"GET", "HEAD"}:
+        start = "/auth/sso/start?" + urlencode({"next": safe_next(query.get("next"))})
+        return html(
+            page(
+                "Sign in",
+                '<main class="auth-card"><h1>Sign in to Tasks</h1>'
+                '<p class="muted">Your projects, tasks and team in one workspace.</p>'
+                '<p><a class="button primary" href="'
+                + escape(start, quote=True)
+                + '">Sign in with a passkey</a></p>'
+                '<p class="small muted">SSO provided by Nate’s Software.</p>'
+                '<p class="small muted">Use your invited account. Your organization must grant access to Tasks.</p></main>',
+            )
+        )
+    if path == "/auth/sso/start" and request.method in {"GET", "HEAD"}:
         await accounts.limit(
             "sso-login:" + request.headers.get("CF-Connecting-IP", "local"), 60, 600
         )
@@ -197,7 +213,14 @@ async def route(request, accounts, path, query, body_data, html, redirect):
     if path == "/auth/sso/callback":
         if request.method in {"GET", "HEAD"}:
             return html(
-                '<!doctype html><html><head><title>Signing in</title></head><body><p id="status">Signing in to Tasktrack…</p><script src="/sso.js"></script></body></html>'
+                page(
+                    "Signing in",
+                    '<main class="auth-card"><h1>Opening Tasks</h1>'
+                    '<p id="status" role="status">Checking your sign-in…</p>'
+                    '<p><a class="button" id="retry" href="/login" hidden>Return to sign in</a></p>'
+                    '<p class="small muted">SSO provided by Nate’s Software.</p></main>',
+                    '<script src="/sso.js" defer></script>',
+                )
             )
         if request.method == "POST":
             data = await body_data(request)
@@ -208,14 +231,14 @@ async def route(request, accounts, path, query, body_data, html, redirect):
                 or not expected
                 or not secrets.compare_digest(state, expected)
             ):
-                raise Error(403, "invalid_state", "Restart sign-in from Tasktrack.")
+                raise Error(403, "invalid_state", "Restart sign-in from Tasks.")
             saved = await accounts.one(
                 "DELETE FROM sso_states WHERE state_hash=? AND expires_at>? RETURNING next_path",
                 digest(state),
                 timestamp(),
             )
             if not saved:
-                raise Error(403, "expired_state", "Restart sign-in from Tasktrack.")
+                raise Error(403, "expired_state", "Restart sign-in from Tasks.")
             exchange = await hub(
                 accounts,
                 "/session/exchange",
