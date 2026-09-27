@@ -130,7 +130,7 @@ async def start(accounts, data, ip):
                     who,
                     "enrollment:" + eid,
                     "Your agent wants to authenticate with Tasktrack. Review "
-                    + accounts.origin
+                    + accounts.link_origin
                     + "/agents#code="
                     + code[:4]
                     + "-"
@@ -142,8 +142,8 @@ async def start(accounts, data, ip):
     return {
         "device_code": device,
         "user_code": code[:4] + "-" + code[4:],
-        "verification_uri": accounts.origin + "/agents",
-        "verification_uri_complete": accounts.origin
+        "verification_uri": accounts.link_origin + "/agents",
+        "verification_uri_complete": accounts.link_origin
         + "/agents#code="
         + code[:4]
         + "-"
@@ -163,7 +163,7 @@ async def deliver(accounts, eid):
     user = await accounts.one("SELECT email FROM users WHERE id=?", row["user_id"])
     body = (
         "Your agent wants to authenticate with Tasktrack. Open "
-        + accounts.origin
+        + accounts.link_origin
         + "/agents and enter the code shown by your agent. Review the requested access before approving. If you did not initiate this, ignore it."
     )
     try:

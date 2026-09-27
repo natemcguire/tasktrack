@@ -33,6 +33,8 @@ from tasktrack.db import Error, encode
 from tasktrack.hosted_pages import (
     account_page,
     auth_page,
+    brand_for_host,
+    brand_html,
     error_page,
     invite_page,
     share_page,
@@ -299,6 +301,20 @@ class Default(WorkerEntrypoint):
             headers["Strict-Transport-Security"] = "max-age=31536000"
         if response.status == 429:
             headers["Retry-After"] = "600"
+        if "text/html" in response.headers.get(
+            "Content-Type", ""
+        ) and parsed.hostname in {
+            "tasks.nates-software.com",
+            "tasks.eastbayprojects.com",
+        }:
+            content = brand_html(await response.text(), parsed.hostname)
+            headers.pop("content-length", None)
+            headers.pop("Content-Length", None)
+            return Response(
+                None if request.method == "HEAD" else content,
+                status=response.status,
+                headers=headers,
+            )
         body = response.js_object.body
         return Response(
             None if request.method == "HEAD" or not body else body,
@@ -342,7 +358,9 @@ class Default(WorkerEntrypoint):
             await accounts.one("SELECT 1 FROM users LIMIT 1")
             return Response.json({"status": "ok", "storage": "cloudflare"})
         if sso.enabled(accounts):
-            result = await sso.route(request, accounts, path, query, body_data, html, redirect)
+            result = await sso.route(
+                request, accounts, path, query, body_data, html, redirect
+            )
             if result is not None:
                 return result
         if path in {"/oauth/device_authorization", "/oauth/token"} and method == "POST":
@@ -422,7 +440,9 @@ class Default(WorkerEntrypoint):
         shared = re.fullmatch(r"/s/([A-Za-z0-9_-]{43})(/preview.png)?", path)
         if shared and method == "GET":
             if sso.enabled(accounts) and not await accounts.authenticate(request):
-                raise Error(401, "sign_in_required", "Sign in with Nate's Software SSO.")
+                raise Error(
+                    401, "sign_in_required", "Sign in with Nate's Software SSO."
+                )
             share = await accounts.one(
                 "SELECT * FROM shares WHERE token=? AND revoked_at IS NULL", shared[1]
             )
@@ -443,7 +463,7 @@ class Default(WorkerEntrypoint):
                         404, "image_missing", "The task preview is unavailable."
                     )
                 return Response(blob.body, headers={"Content-Type": "image/png"})
-            return html(share_page(share, task, accounts.origin))
+            return html(share_page(share, task, accounts.link_origin))
         identity = await accounts.authenticate(request)
         invitation = re.fullmatch(r"/invite/([A-Za-z0-9_-]{43})", path)
         if invitation and method == "GET":
@@ -692,7 +712,7 @@ class Default(WorkerEntrypoint):
                         "Your agent wants to "
                         + result["summary"]
                         + ". Review the exact action and approve or deny: "
-                        + accounts.origin
+                        + accounts.link_origin
                         + "/agents",
                     )
                 except Error:
@@ -764,6 +784,9 @@ class Default(WorkerEntrypoint):
                     "workspace_name",
                 )
             }
+            context["brand_title"] = brand_for_host(urlsplit(accounts.origin).hostname)[
+                "title"
+            ]
             initial = {}
 
             async def preload(route, query=None):
@@ -992,7 +1015,7 @@ class Default(WorkerEntrypoint):
                     "items": [
                         {
                             "id": s["id"],
-                            "url": accounts.origin + "/s/" + s["token"],
+                            "url": accounts.link_origin + "/s/" + s["token"],
                             "created_at": s["created_at"],
                         }
                         for s in rows
@@ -1063,7 +1086,7 @@ class Default(WorkerEntrypoint):
                     "This share link was revoked. Create a new link.",
                 )
             return Response.json(
-                {"id": old["id"], "url": accounts.origin + "/s/" + old["token"]},
+                {"id": old["id"], "url": accounts.link_origin + "/s/" + old["token"]},
                 status=201,
             )
         await accounts.limit("shares:" + wid, 30, 3600)
@@ -1104,7 +1127,7 @@ class Default(WorkerEntrypoint):
                 "This request key was used for different share content.",
             )
         return Response.json(
-            {"id": saved["id"], "url": accounts.origin + "/s/" + saved["token"]},
+            {"id": saved["id"], "url": accounts.link_origin + "/s/" + saved["token"]},
             status=201,
         )
 

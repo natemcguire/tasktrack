@@ -1,6 +1,6 @@
 # Nate's Software SSO
 
-The canonical deployment is https://tasks.nates-software.com. The existing https://tasks.eastbayprojects.com address is a white-label hostname on the **same** `tasktrack` Worker, D1 database, Durable Object namespace and R2 bucket. It retains its hostname and uses host-only cookies; either hostname can start SSO. There is no duplicate instance or synchronization layer.
+The canonical deployment is https://tasks.nates-software.com. The existing https://tasks.eastbayprojects.com address is a white-label hostname on the **same** `tasktrack` Worker, D1 database, Durable Object namespace and R2 bucket. It retains its hostname and displays East Bay Projects branding; the canonical host displays Nate’s Software. Generated share, invitation, device sign-in and API resource links use the canonical hostname. Each hostname uses host-only cookies; either hostname can start SSO. There is no duplicate instance or synchronization layer.
 
 The `AUTH_HUB` service binding points to Worker `auth`. `SSO_REQUIRED=1` disables independent public signup, email links and passkeys. SSO membership must be active in tenant `nates-software`, with product `tasktrack`. The organization owner is `nate.mcguire@gmail.com`. Invite users and grant Tasktrack at the auth hub; an invitation to a Tasktrack workspace alone cannot grant SSO access.
 
