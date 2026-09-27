@@ -6,8 +6,10 @@ The `AUTH_HUB` service binding points to Worker `auth`. `SSO_REQUIRED=1` disable
 
 Browser login uses a random state bound to a secure HttpOnly cookie and consumed once in D1. The hub's fragment token is posted to the same-origin callback and exchanged server-side. The long-lived hub session is stored in D1, linked to the existing host-only Tasktrack session. Every protected request introspects the hub session. Shared task links and private previews require the same access.
 
-Verified email links existing users to their current IDs and workspaces, preserving all task data. A newly invited product user joins the owner's first workspace as a regular member. Existing project, membership, agent and service-token scopes remain in force. API tokens check the owner's current SSO entitlement via the private service binding; service-app tokens check their creator's entitlement. Revocation fails closed, including hub outages.
+The migration renames Nate's existing `nate@eastbayprojects.com` account to `nate.mcguire@gmail.com`, preserving its UUID, three workspaces and tokens. Verified email links existing users to their current IDs and workspaces, preserving all task data. A newly invited product user joins the owner's first workspace as a regular member. Existing project, membership, agent and service-token scopes remain in force. API tokens check the owner's current SSO entitlement via the private service binding; service-app tokens check their creator's entitlement. Revocation fails closed, including hub outages.
 
 Deployment adds migration `0013_sso.sql` without deleting or rewriting existing data. Local standalone development remains available when `SSO_REQUIRED` is unset. To exercise standalone hosted browser fixtures, explicitly override it to `0`.
 
 The deployment script prefers the ignored `wrangler.private.json`; keep its canonical route, aliases, `SSO_REQUIRED`, and `AUTH_HUB` binding aligned with `wrangler.jsonc`. Existing `preview.eastbayprojects.com` remains an isolated preview origin, whose document reads recheck the associated SSO session.
+
+The legacy `hello@tasks.eastbayprojects.com` sender remains configured for existing agent notifications; browser login email is sent by the central auth hub.

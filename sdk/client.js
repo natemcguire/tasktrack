@@ -15,7 +15,7 @@ export class TasktrackClient {
   #fetch;
   #id;
   constructor({
-    origin = "https://tasks.eastbayprojects.com",
+    origin = "https://tasks.nates-software.com",
     clientId,
     clientSecret,
     fetch: transport = globalThis.fetch,
