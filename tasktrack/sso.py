@@ -180,7 +180,7 @@ async def route(request, accounts, path, query, body_data, html, redirect):
                 '<p class="muted">Your projects, tasks and team in one workspace.</p>'
                 '<p><a class="button primary" href="'
                 + escape(start, quote=True)
-                + '">Sign in with a passkey</a></p>'
+                + '">Sign in with password or passkey</a></p>'
                 '<p class="small muted">SSO provided by Nate’s Software.</p>'
                 '<p class="small muted">Use your invited account. Your organization must grant access to Tasks.</p></main>',
             )
