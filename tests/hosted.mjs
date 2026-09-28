@@ -87,6 +87,9 @@ async function start() {
       "--var",
       "LOCAL_EMAIL:1",
       "--var",
+      // The local smoke exercises the email sign-in flow without an auth hub.
+      "SSO_REQUIRED:0",
+      "--var",
       `PREVIEW_URL:${previewUrl}`,
     ],
     { cwd: root, env, detached: true, stdio: ["ignore", "pipe", "pipe"] },
