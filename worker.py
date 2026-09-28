@@ -283,6 +283,14 @@ class Default(WorkerEntrypoint):
                 },
                 status=500,
             )
+        # wrangler dev's proxy fails the next request when a response is sent
+        # before the request body was read (workers-sdk #15203); production
+        # workerd is unaffected. Drain unread bodies so early rejections are safe.
+        try:
+            if request.method not in {"GET", "HEAD"} and not request.body_used:
+                await request.js_object.arrayBuffer()
+        except Exception:
+            pass
         headers = dict(response.headers.items())
         headers.update(
             {
