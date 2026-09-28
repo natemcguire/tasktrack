@@ -171,7 +171,7 @@ async def create_session(accounts, exchange):
 async def route(request, accounts, path, query, body_data, html, redirect):
     from workers import Response
 
-    if path in {"/login", "/signup"} and request.method in {"GET", "HEAD"}:
+    if enabled(accounts) and path in {"/login", "/signup"} and request.method in {"GET", "HEAD"}:
         start = "/auth/sso/start?" + urlencode({"next": safe_next(query.get("next"))})
         return html(
             page(

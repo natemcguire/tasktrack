@@ -293,7 +293,7 @@ class Default(WorkerEntrypoint):
                 "Content-Security-Policy": response.headers.get(
                     "Content-Security-Policy"
                 )
-                or "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+                or "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors https://nates-software.com https://nates-software.pages.dev; form-action 'self'",
                 "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
             }
         )
