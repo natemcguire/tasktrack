@@ -11,7 +11,7 @@ from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 8
 
 
 def now():
@@ -52,6 +52,19 @@ def validate_migration(connection, target):
 
 
 MIGRATIONS = {
+    8: [
+        "CREATE TABLE import_items (job_id TEXT NOT NULL REFERENCES import_jobs(id), position INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(job_id,position))",
+        "INSERT INTO import_items SELECT j.id,CAST(r.key AS INTEGER),r.value FROM import_jobs j,json_each(j.dataset,'$.records') r",
+    ],
+    7: [
+        "CREATE TABLE import_jobs (id TEXT PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), owner_id TEXT NOT NULL, provider TEXT NOT NULL, account_id TEXT NOT NULL, source_project TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'preview', dataset TEXT NOT NULL, cursor INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, report TEXT NOT NULL)",
+        "CREATE TABLE import_records (provider TEXT NOT NULL, account_id TEXT NOT NULL, source_project TEXT NOT NULL, source_id TEXT NOT NULL, project_id INTEGER NOT NULL REFERENCES projects(id), task_id INTEGER NOT NULL REFERENCES tasks(id), source_hash TEXT NOT NULL, job_id TEXT NOT NULL REFERENCES import_jobs(id), PRIMARY KEY(provider,account_id,source_project,source_id,project_id))",
+        "CREATE TABLE import_blobs (job_id TEXT NOT NULL REFERENCES import_jobs(id), sha256 TEXT NOT NULL, size INTEGER NOT NULL, PRIMARY KEY(job_id,sha256))",
+    ],
+    6: [
+        "CREATE TABLE approval_requests (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, agent_id TEXT NOT NULL, actor TEXT NOT NULL, manifest TEXT NOT NULL, digest TEXT NOT NULL, summary TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending', expires_at INTEGER NOT NULL, created_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, executed_at TEXT, result TEXT)",
+        "CREATE INDEX approval_owner ON approval_requests(owner_id,state,expires_at)",
+    ],
     5: [
         "CREATE TABLE board_columns (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL REFERENCES projects(id), name TEXT NOT NULL, allowed_phases_json TEXT NOT NULL, sort_key INTEGER NOT NULL, wip_limit INTEGER, archived_at TEXT, version INTEGER NOT NULL DEFAULT 1)",
         "CREATE TABLE board_phase_defaults (project_id INTEGER NOT NULL REFERENCES projects(id), phase TEXT NOT NULL CHECK(phase IN ('backlog','in_progress','review','done')), column_id INTEGER NOT NULL REFERENCES board_columns(id), PRIMARY KEY(project_id, phase))",

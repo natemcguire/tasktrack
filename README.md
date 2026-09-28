@@ -17,8 +17,7 @@ Browser, CLI and HTTP API. Python and SQLite. Hosted on Cloudflare or run locall
 
 ## Get started
 
-[Open Tasktrack](https://tasks.eastbayprojects.com). Enter your email, follow the
-sign-in link, and start a workspace.
+[Open Tasktrack](https://tasks.nates-software.com). Sign in with Nate's Software SSO. Access requires membership in Nate's Software and an explicit Tasktrack product grant.
 
 Or run it locally with Python 3.11+ and [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
@@ -55,7 +54,7 @@ to one session; `tt brief` shows your work when you come back.
 For your hosted workspace, create a token under **Account → Agent access**:
 
 ```sh
-export TT_URL=https://tasks.eastbayprojects.com
+export TT_URL=https://tasks.nates-software.com
 export TT_TOKEN=your-token
 tt brief --json
 ```

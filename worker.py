@@ -12,7 +12,19 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from workers import DurableObject, Request, Response, WorkerEntrypoint
 
-from tasktrack import membership_api, passkeys, previews
+from tasktrack import (
+    agent_auth,
+    agent_routes,
+    app_routes,
+    import_fetches,
+    import_routes,
+    membership_api,
+    notifications,
+    passkeys,
+    previews,
+    service_apps,
+    sso,
+)
 from tasktrack.access import Access
 from tasktrack.accounts import Accounts, digest, safe_next, timestamp, token
 from tasktrack.asset_version import ASSET_VERSION
@@ -21,6 +33,8 @@ from tasktrack.db import Error, encode
 from tasktrack.hosted_pages import (
     account_page,
     auth_page,
+    brand_for_host,
+    brand_html,
     error_page,
     invite_page,
     share_page,
@@ -197,6 +211,10 @@ class Default(WorkerEntrypoint):
         accounts = Accounts(self.env)
         parsed = urlsplit(request.url)
         path = unquote(parsed.path)
+        aliases = getattr(self.env, "ALLOWED_ORIGINS", "").split(",")
+        request_origin = parsed.scheme + "://" + parsed.netloc
+        if request_origin in aliases:
+            accounts.origin = request_origin
         try:
             is_preview = (
                 not accounts.local
@@ -275,7 +293,7 @@ class Default(WorkerEntrypoint):
                 "Content-Security-Policy": response.headers.get(
                     "Content-Security-Policy"
                 )
-                or "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+                or "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors https://nates-software.com https://nates-software.pages.dev; form-action 'self'",
                 "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
             }
         )
@@ -283,6 +301,20 @@ class Default(WorkerEntrypoint):
             headers["Strict-Transport-Security"] = "max-age=31536000"
         if response.status == 429:
             headers["Retry-After"] = "600"
+        if "text/html" in response.headers.get(
+            "Content-Type", ""
+        ) and parsed.hostname in {
+            "tasks.nates-software.com",
+            "tasks.eastbayprojects.com",
+        }:
+            content = brand_html(await response.text(), parsed.hostname)
+            headers.pop("content-length", None)
+            headers.pop("Content-Length", None)
+            return Response(
+                None if request.method == "HEAD" else content,
+                status=response.status,
+                headers=headers,
+            )
         body = response.js_object.body
         return Response(
             None if request.method == "HEAD" or not body else body,
@@ -297,10 +329,14 @@ class Default(WorkerEntrypoint):
             in {
                 "/app.js",
                 "/auth.js",
+                "/sso.js",
                 "/preview.js",
                 "/passkeys.js",
                 "/style.css",
                 "/hosted.js",
+                "/agent-access.js",
+                "/service-apps.js",
+                "/imports.js",
                 "/hosted.css",
                 "/favicon.svg",
             }
@@ -321,6 +357,27 @@ class Default(WorkerEntrypoint):
         if path == "/healthz" and method == "GET":
             await accounts.one("SELECT 1 FROM users LIMIT 1")
             return Response.json({"status": "ok", "storage": "cloudflare"})
+        if sso.enabled(accounts):
+            result = await sso.route(
+                request, accounts, path, query, body_data, html, redirect
+            )
+            if result is not None:
+                return result
+        if path in {"/oauth/device_authorization", "/oauth/token"} and method == "POST":
+            data = await body_data(request, form=True)
+            ip = request.headers.get("CF-Connecting-IP", "local")
+            if path.endswith("device_authorization"):
+                return Response.json(await agent_auth.start(accounts, data, ip))
+            await accounts.limit("device-poll:" + ip, 120, 60)
+            if data.get("grant_type") == "urn:ietf:params:oauth:grant-type:device_code":
+                result = await agent_auth.poll(accounts, data.get("device_code"))
+            elif data.get("grant_type") == "client_credentials":
+                result = await service_apps.exchange(accounts, data, ip)
+            elif data.get("grant_type") == "refresh_token":
+                result = await agent_auth.refresh(accounts, data.get("refresh_token"))
+            else:
+                result = {"error": "unsupported_grant_type"}
+            return Response.json(result, status=400 if "error" in result else 200)
         returning = re.fullmatch(
             r"/preview/return/([a-f0-9-]{36})/([A-Za-z0-9_-]{43})", path
         )
@@ -382,6 +439,10 @@ class Default(WorkerEntrypoint):
                 return redirect(next_path, accounts.cookie(session))
         shared = re.fullmatch(r"/s/([A-Za-z0-9_-]{43})(/preview.png)?", path)
         if shared and method == "GET":
+            if sso.enabled(accounts) and not await accounts.authenticate(request):
+                raise Error(
+                    401, "sign_in_required", "Sign in with Nate's Software SSO."
+                )
             share = await accounts.one(
                 "SELECT * FROM shares WHERE token=? AND revoked_at IS NULL", shared[1]
             )
@@ -402,7 +463,7 @@ class Default(WorkerEntrypoint):
                         404, "image_missing", "The task preview is unavailable."
                     )
                 return Response(blob.body, headers={"Content-Type": "image/png"})
-            return html(share_page(share, task, accounts.origin))
+            return html(share_page(share, task, accounts.link_origin))
         identity = await accounts.authenticate(request)
         invitation = re.fullmatch(r"/invite/([A-Za-z0-9_-]{43})", path)
         if invitation and method == "GET":
@@ -433,16 +494,75 @@ class Default(WorkerEntrypoint):
             )
         if path == "/account" and method == "GET":
             return html(account_page(identity, await accounts.overview(identity)))
+        if path.startswith("/api/v1/import-fetches"):
+            return await import_fetches.route(
+                self, request, accounts, identity, path, method, body_data, bounded_body
+            )
+        if path == "/apps" or path.startswith("/api/v1/service-apps"):
+            return await app_routes.route(
+                self, request, accounts, identity, path, method, body_data
+            )
+        if path == "/agents" or path.startswith(
+            (
+                "/api/v1/agents",
+                "/api/v1/agent-enrollments",
+                "/api/v1/agent-notifications",
+                "/api/v1/agent-channels",
+                "/api/v1/agent-deliveries",
+                "/api/v1/approval-requests",
+            )
+        ):
+            response = await agent_routes.route(
+                self, request, accounts, identity, path, method, body_data
+            )
+            if response is not None:
+                return response
+        if (
+            re.fullmatch(r"/api/v1/import-jobs/[a-f0-9-]+/people", path)
+            or path == "/imports"
+            or path.startswith(
+                (
+                    "/api/v1/import-providers",
+                    "/api/v1/import-people",
+                    "/api/v1/import-connections",
+                    "/api/v1/import-analyze",
+                    "/api/v1/import-previews",
+                    "/integrations/",
+                )
+            )
+            or re.fullmatch(
+                r"/api/v1/import-jobs/[^/]+/(source|files/[a-f0-9]{64}|rollback/(challenge|decision))",
+                path,
+            )
+        ):
+            response = await import_routes.route(
+                self,
+                request,
+                accounts,
+                identity,
+                path,
+                method,
+                query,
+                body_data,
+                bounded_body,
+            )
+            if response is not None:
+                return response
         if (
             path.startswith("/account/") or path == "/auth/logout" or invitation
         ) and method == "POST":
             data = await body_data(request, form=True)
             accounts.csrf(request, identity, data)
             if path == "/auth/logout":
+                destination = (
+                    await sso.logout(accounts, identity)
+                    if sso.enabled(accounts)
+                    else "/login"
+                )
                 await accounts.run(
                     "DELETE FROM sessions WHERE token_hash=?", identity["session_hash"]
                 )
-                return redirect("/login", accounts.cookie("", clear=True))
+                return redirect(destination, accounts.cookie("", clear=True))
             if path == "/account/switch":
                 await accounts.switch(identity, data.get("workspace_id", ""))
                 return redirect("/")
@@ -584,6 +704,24 @@ class Default(WorkerEntrypoint):
                 request.headers.get("X-Via", "api"),
                 upload,
             )
+            if (
+                method == "POST"
+                and path == "/api/v1/approval-requests"
+                and status == 201
+            ):
+                try:
+                    await notifications.notify(
+                        accounts,
+                        identity,
+                        "approval:" + result["id"],
+                        "Your agent wants to "
+                        + result["summary"]
+                        + ". Review the exact action and approve or deny: "
+                        + accounts.link_origin
+                        + "/agents",
+                    )
+                except Error:
+                    pass  # The request remains visible in the human inbox if notifications are throttled.
             if method == "GET" and re.fullmatch(
                 r"/api/v1/attachments/\d+/content", path
             ):
@@ -651,6 +789,9 @@ class Default(WorkerEntrypoint):
                     "workspace_name",
                 )
             }
+            context["brand_title"] = brand_for_host(urlsplit(accounts.origin).hostname)[
+                "title"
+            ]
             initial = {}
 
             async def preload(route, query=None):
@@ -879,7 +1020,7 @@ class Default(WorkerEntrypoint):
                     "items": [
                         {
                             "id": s["id"],
-                            "url": accounts.origin + "/s/" + s["token"],
+                            "url": accounts.link_origin + "/s/" + s["token"],
                             "created_at": s["created_at"],
                         }
                         for s in rows
@@ -950,7 +1091,7 @@ class Default(WorkerEntrypoint):
                     "This share link was revoked. Create a new link.",
                 )
             return Response.json(
-                {"id": old["id"], "url": accounts.origin + "/s/" + old["token"]},
+                {"id": old["id"], "url": accounts.link_origin + "/s/" + old["token"]},
                 status=201,
             )
         await accounts.limit("shares:" + wid, 30, 3600)
@@ -991,7 +1132,7 @@ class Default(WorkerEntrypoint):
                 "This request key was used for different share content.",
             )
         return Response.json(
-            {"id": saved["id"], "url": accounts.origin + "/s/" + saved["token"]},
+            {"id": saved["id"], "url": accounts.link_origin + "/s/" + saved["token"]},
             status=201,
         )
 
@@ -1014,6 +1155,38 @@ class Default(WorkerEntrypoint):
                     now,
                 ),
                 accounts.statement("DELETE FROM api_tokens WHERE expires_at<?", now),
+                accounts.statement(
+                    "DELETE FROM service_app_tokens WHERE expires_at<?", now
+                ),
+                accounts.statement(
+                    "DELETE FROM human_challenges WHERE expires_at<?", now
+                ),
+                accounts.statement(
+                    "DELETE FROM import_oauth_states WHERE expires_at<?", now
+                ),
+                accounts.statement(
+                    "UPDATE agent_enrollments SET status='expired' WHERE expires_at<? AND status IN ('pending','approved')",
+                    now,
+                ),
+                accounts.statement(
+                    "UPDATE security_deliveries SET status='expired',body='' WHERE expires_at<? AND status='queued'",
+                    now,
+                ),
+                accounts.statement(
+                    "UPDATE security_deliveries SET status='uncertain' WHERE lease_expires<? AND status='claimed'",
+                    now,
+                ),
+                accounts.statement(
+                    "UPDATE security_deliveries SET body='' WHERE expires_at<?",
+                    now - 86400,
+                ),
+                accounts.statement(
+                    "DELETE FROM agent_notifications WHERE created_at<?",
+                    now - 30 * 86400,
+                ),
+                accounts.statement(
+                    "DELETE FROM agent_enrollments WHERE expires_at<?", now - 30 * 86400
+                ),
                 accounts.statement("DELETE FROM invites WHERE expires_at<?", now),
                 accounts.statement(
                     "DELETE FROM rate_limits WHERE updated_at<?", now - 86400

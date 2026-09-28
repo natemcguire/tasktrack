@@ -1,0 +1,15 @@
+{
+  "name": "@tasktrack/client",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./client.js",
+    "./components": "./components.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test client.test.js"
+  }
+}

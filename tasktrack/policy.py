@@ -12,6 +12,7 @@ TENANT_ACTIONS = frozenset(
         "project.create",
         "identity.manage",
         "integrations.manage",
+        "notifications.deliver",
         "surcharge.manage",
         "tenant.export",
         "tenant.delete",
@@ -57,6 +58,7 @@ ADMIN_ONLY = frozenset(
     {
         "identity.manage",
         "integrations.manage",
+        "notifications.deliver",
         "surcharge.manage",
         "tenant.export",
         "tenant.delete",

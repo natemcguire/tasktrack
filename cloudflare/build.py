@@ -21,6 +21,17 @@ shutil.copytree(
 subprocess.run(
     [
         str(ROOT / "node_modules/.bin/esbuild"),
+        str(ROOT / "cloudflare/provider-crypto.js"),
+        "--bundle",
+        "--format=esm",
+        "--platform=browser",
+        "--outfile=" + str(destination / "provider-crypto.mjs"),
+    ],
+    check=True,
+)
+subprocess.run(
+    [
+        str(ROOT / "node_modules/.bin/esbuild"),
         str(ROOT / "cloudflare/passkey-server.js"),
         "--bundle",
         "--format=esm",
@@ -36,10 +47,16 @@ subprocess.run(
         "--bundle",
         "--format=iife",
         "--minify",
-        "--outfile=" + str(ROOT / "tasktrack/static/passkeys.js"),
+        "--outfile=" + str(destination / "passkeys-browser.js"),
     ],
     check=True,
 )
+
+# Avoid triggering our own tasktrack/ watcher on every build.
+browser_bundle = (destination / "passkeys-browser.js").read_bytes()
+browser_asset = ROOT / "tasktrack/static/passkeys.js"
+if not browser_asset.exists() or browser_asset.read_bytes() != browser_bundle:
+    browser_asset.write_bytes(browser_bundle)
 
 assets = hashlib.sha256()
 for asset in sorted((ROOT / "tasktrack/static").iterdir()):
