@@ -1,6 +1,7 @@
 """Small server-rendered account and customer pages; all user text is escaped."""
 
 import json
+import re
 from datetime import datetime, timezone
 from html import escape as esc
 
@@ -35,6 +36,11 @@ def page(title, content, metadata="", script=False):
             '"/' + asset + '"', '"/' + asset + "?v=" + ASSET_VERSION + '"'
         )
     return result
+
+
+def sso_page(title, content, metadata=""):
+    window = '<div class="sso-window"><div class="sso-titlebar">T · Tasks</div>' + content + '<footer>SSO provided by Nate’s Software</footer></div>'
+    return page(title, window, metadata).replace('class="hosted-page"', 'class="hosted-page sso-page"')
 
 
 def auth_page(mode="login", next_path="/", message="", secret="", challenge=""):
@@ -135,9 +141,7 @@ def account_page(identity, overview):
                 )
                 + "</select>"
             )
-            status_btn = (
-                f'<button class="button quiet" data-member-status="{esc(m["membership_id"])}" data-status="{esc(status)}">{"Reactivate" if status == "suspended" else "Suspend"}</button>'
-            )
+            status_btn = f'<button class="button quiet" data-member-status="{esc(m["membership_id"])}" data-status="{esc(status)}">{"Reactivate" if status == "suspended" else "Suspend"}</button>'
             remove_btn = (
                 f'<button class="button quiet" data-remove-member="{esc(m["id"])}">Remove</button>'
                 if owner and not self_row
@@ -145,16 +149,16 @@ def account_page(identity, overview):
             )
             controls = f'<span data-member-revision="{esc(m["membership_id"])}" data-revision="{m["revision"]}">{role_select}{status_btn}{remove_btn}</span>'
         else:
-            controls = f'<small>{esc(ROLE_LABELS.get(role, role))}{" · external" if external else ""}{" · suspended" if status == "suspended" else ""}</small>'
+            controls = f"<small>{esc(ROLE_LABELS.get(role, role))}{' · external' if external else ''}{' · suspended' if status == 'suspended' else ''}</small>"
         member_rows += f'<li data-member-row="{esc(m["membership_id"])}"><span>{name}<small>{esc(m["email"])}</small></span>{controls}</li>'
 
     tz_options = "".join(f"<option>{esc(z)}</option>" for z in TIMEZONES)
-    create_workspace = f'''<section class="account-section"><h2>Create a workspace</h2><p class="muted">Start a separate, private workspace. You’ll be its admin.</p><form id="create-workspace"><label for="new-workspace-name">Name</label><input id="new-workspace-name" name="name" maxlength="80" placeholder="Acme Studio" required><label for="new-workspace-tz">Timezone</label><select id="new-workspace-tz" name="timezone">{tz_options}</select><button class="button primary">Create workspace</button></form><p id="create-workspace-message" role="status"></p></section>'''
+    create_workspace = f"""<section class="account-section"><h2>Create a workspace</h2><p class="muted">Start a separate, private workspace. You’ll be its admin.</p><form id="create-workspace"><label for="new-workspace-name">Name</label><input id="new-workspace-name" name="name" maxlength="80" placeholder="Acme Studio" required><label for="new-workspace-tz">Timezone</label><select id="new-workspace-tz" name="timezone">{tz_options}</select><button class="button primary">Create workspace</button></form><p id="create-workspace-message" role="status"></p></section>"""
 
     members_admin = (
-        f'''<section class="account-section"><h2>Team</h2><p class="muted">Set who administers this workspace and who can see billing. Changing a role signs the affected person out.</p><ul class="account-list" id="member-list">{member_rows}</ul><p id="member-message" role="status"></p></section>'''
+        f"""<section class="account-section"><h2>Team</h2><p class="muted">Set who administers this workspace and who can see billing. Changing a role signs the affected person out.</p><ul class="account-list" id="member-list">{member_rows}</ul><p id="member-message" role="status"></p></section>"""
         if is_admin
-        else f'''<section class="account-section"><h2>Team</h2><ul class="account-list">{member_rows}</ul></section>'''
+        else f"""<section class="account-section"><h2>Team</h2><ul class="account-list">{member_rows}</ul></section>"""
     )
 
     content = f'''<main class="account-content"><a href="/">← Back to your board</a><h1>Your workspace</h1>
@@ -165,7 +169,7 @@ def account_page(identity, overview):
 {members_admin}
 <section class="account-section"><h2>Passkeys</h2><p class="muted">Sign in with Touch ID, Face ID or your device’s screen lock. Your email code remains available for recovery.</p><ul class="account-list">{passkey_rows or "<li>No passkeys yet.</li>"}</ul><form id="add-passkey" hidden><label for="passkey-name">Passkey name</label><div class="account-row"><input id="passkey-name" maxlength="80" value="My passkey" required><button class="button">Add passkey</button></div></form><p id="passkey-message" role="status"></p></section>
 {'<section class="account-section"><h2>Invitations</h2><p class="small muted">An invitation lets one person join this workspace. It expires in 48 hours.</p><button class="button" id="create-invite">Create invitation link</button><div id="invite-result"></div><ul class="account-list">' + invites + "</ul></section>" if owner else ""}
-<section class="account-section"><h2>Agent access</h2><p class="muted">Give an agent access to this workspace from the CLI or API. Tokens expire after 90 days.</p>
+<section class="account-section"><h2>Agent access</h2><p><a class="button primary" href="/agents">Review requests and manage agents</a> <a class="button" href="/imports">Import work</a> <a class="button" href="/apps">Internal apps</a></p><p class="muted">Use device enrollment for scoped access and phone approval. Legacy manually issued tokens below expire after 90 days.</p>
 {'<form id="create-token"><label for="token-name">Agent name</label><div class="account-row"><input id="token-name" name="name" placeholder="codex" maxlength="60" required><button class="button">Create token</button></div></form><div id="token-result"></div>' if owner else '<p class="small">Ask the workspace owner to create an agent token.</p>'}<ul class="account-list">{tokens or "<li>No tokens yet.</li>"}</ul></section>
 <form method="post" action="/auth/logout"><input type="hidden" name="csrf" value="{csrf}"><button class="button">Sign out</button></form><p id="account-message" role="status"></p></main>'''
     return page(
@@ -195,3 +199,37 @@ def share_page(share, task, origin):
     snapshot = json.loads(share["snapshot"])
     body = f'''<main class="shared-task"><p class="eyebrow">{esc(task["reference"])} / SHARED TASK</p><h1>{esc(task["title"])}</h1><span class="shared-status {esc(task["status"])}">{esc(status)}</span><section class="customer-update"><h2>Update</h2><p class="preserve-lines">{esc(share["summary"])}</p></section><p class="small muted">Current task status · Updated {esc(task["updated_at"][:10])}</p><details><summary>View the shared snapshot</summary><img class="share-image" src="{esc(url)}/preview.png" width="1200" height="630" alt="{esc(snapshot["title"])}"><p class="small muted">Snapshot from when this link was created.</p></details></main>'''
     return page(title, body, metadata)
+
+
+def brand_for_host(hostname):
+    names = {
+        "tasks.nates-software.com": ("Tasks", "T"),
+        "tasks.eastbayprojects.com": ("East Bay Projects", "EB"),
+    }
+    name, mark = names.get(hostname, ("Tasktrack", "t."))
+    return {
+        "name": name,
+        "mark": mark,
+        "title": "Tasks · " + name if hostname in names and name != "Tasks" else name,
+    }
+
+
+def brand_html(content, hostname):
+    """Replace only app-owned navigation and the document title, never user text."""
+    brand = brand_for_host(hostname)
+    if brand["name"] == "Tasktrack":
+        return content
+
+    def title(match):
+        current = match[1].removesuffix(" · Tasktrack")
+        prefix = "" if current == "Tasktrack" else current + " · "
+        return "<title>" + prefix + esc(brand["title"]) + "</title>"
+
+    content = re.sub(r"<title>(.*?)</title>", title, content, count=1)
+    content = re.sub(
+        r'(<a class="brand"[^>]*>)(<span class="brand-mark"[^>]*>)t\.</span>tasktrack',
+        lambda m: m[1] + m[2] + brand["mark"] + "</span>" + esc(brand["name"]),
+        content,
+        count=1,
+    )
+    return content

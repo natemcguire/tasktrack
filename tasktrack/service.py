@@ -414,7 +414,16 @@ class Service:
         ).hexdigest()
         context = {"actor": actor, "session": session, "via": via}
         with self.store.connection(write=True) as c:
-            if self.access:
+            from . import approvals
+
+            approval_route = path.startswith("/api/v1/approval-requests")
+            if path.startswith("/api/v1/import-jobs"):
+                from . import imports
+
+                imports.authorize(self, c)
+            elif approval_route:
+                approvals.authorize(self, c, method, path, body)
+            elif self.access:
                 self.access.write(self, c, method, path, body)
             receipt = c.execute(
                 "SELECT * FROM receipts WHERE actor=? AND request_key=?",
@@ -428,6 +437,7 @@ class Service:
                         "This request key was already used for different content or caller context.",
                     )
                 return receipt["status"], json.loads(receipt["response"])
+            approvals.enforce(self, method, path)
             status, result = self._mutate(c, method, path, body, context, upload)
             c.execute(
                 "INSERT INTO receipts VALUES (?,?,?,?,?,?)",
@@ -440,6 +450,14 @@ class Service:
         if parts[:2] != ["api", "v1"]:
             raise Error(404, "not_found", "Use the versioned /api/v1 routes.")
         parts = parts[2:]
+        if parts and parts[0] == "approval-requests":
+            from . import approvals
+
+            return approvals.write(self, c, method, parts, body, context)
+        if parts and parts[0] == "import-jobs":
+            from . import imports
+
+            return imports.write(self, c, method, parts, body, context)
         if (
             len(parts) == 3
             and parts[0] == "projects"
@@ -1260,7 +1278,9 @@ class Service:
         return result
 
     def content(self, task):
-        return {
+        return (
+            {"import_source": task["import_source"]} if "import_source" in task else {}
+        ) | {
             k: task[k]
             for k in (
                 "title",
@@ -1513,6 +1533,17 @@ class Service:
                 }.get(
                     (task["status"], target_phase),
                     "invalid",
+                )
+        if self.access and self.access.identity.get("bearer"):
+            from .approvals import PROTECTED_TASK_ACTIONS
+
+            if actual in PROTECTED_TASK_ACTIONS and context.get(
+                "approved_task_action"
+            ) != (task["id"], actual):
+                raise Error(
+                    403,
+                    "approval_required",
+                    "This action, including board moves that perform it, requires a human-approved request.",
                 )
         allowed = {
             "start": {"backlog"},
@@ -2212,6 +2243,14 @@ class Service:
             if parts[:2] != ["api", "v1"]:
                 raise Error(404, "not_found", "Use /api/v1.")
             parts = parts[2:]
+            if parts and parts[0] == "approval-requests":
+                from . import approvals
+
+                return approvals.read(self, c, parts, query)
+            if parts and parts[0] == "import-jobs":
+                from . import imports
+
+                return imports.read(self, c, parts, query)
             if parts == ["me", "capabilities"] and self.access:
                 from .policy import ACTIONS, POLICY_VERSION, PROJECT_ACTIONS
 
@@ -2331,7 +2370,31 @@ class Service:
                     },
                     actor,
                 )
-                return {"columns": columns, "epics": epics}
+                configuration = self.project_columns(c, query["project_id"])
+                custom = len(configuration["columns"]) != 4 or any(
+                    col["name"].lower() != label or col.get("allowed_phases") != [phase]
+                    for col, (phase, label) in zip(
+                        configuration["columns"],
+                        zip(STATUSES, ["backlog", "in progress", "review", "done"]),
+                    )
+                )
+                configured_columns = None
+                if custom:
+                    configured_columns = {
+                        str(col["id"]): self.task_list(
+                            c,
+                            "/api/v1/tasks",
+                            {**query, "column_id": str(col["id"]), "view": "summary"},
+                            actor,
+                        )
+                        for col in configuration["columns"]
+                    }
+                return {
+                    "columns": columns,
+                    "epics": epics,
+                    "configuration": configuration,
+                    "configured_columns": configured_columns,
+                }
             if len(parts) == 2 and parts[0] == "tasks":
                 fields(query, set())
                 return self.public_task(c, parts[1])

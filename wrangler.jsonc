@@ -13,7 +13,12 @@
   "rules": [{"type":"ESModule","globs":["**/*.mjs"],"fallthrough":true}],
   "workers_dev": false,
   "preview_urls": false,
-  "routes": [{ "pattern": "tasks.eastbayprojects.com", "custom_domain": true }],
+  "routes": [
+    { "pattern": "tasks.nates-software.com", "custom_domain": true },
+    { "pattern": "tasks.nates-software.com/*", "zone_name": "nates-software.com" },
+    { "pattern": "tasks.eastbayprojects.com", "custom_domain": true }
+  ],
+  "services": [{ "binding": "AUTH_HUB", "service": "auth" }],
   "assets": {
     "directory": "tasktrack/static",
     "binding": "ASSETS",
@@ -39,7 +44,11 @@
     },
   ],
   "triggers": { "crons": ["23 * * * *"] },
-  "vars": { "PUBLIC_URL": "https://tasks.eastbayprojects.com" },
+  "vars": {
+    "PUBLIC_URL": "https://tasks.nates-software.com",
+    "ALLOWED_ORIGINS": "https://tasks.eastbayprojects.com",
+    "SSO_REQUIRED": "1"
+  },
   "limits": { "cpu_ms": 10000 },
   "observability": {
     "enabled": true,

@@ -1,6 +1,7 @@
 """Hosted account and workspace authorization, backed by Cloudflare D1."""
 
 import hashlib
+import json
 import re
 import secrets
 import time
@@ -31,7 +32,7 @@ def safe_next(value):
     return (
         value
         if re.fullmatch(
-            r"/(?:preview/return/[a-f0-9-]{36}/[A-Za-z0-9_-]{43}|account|triage|invite/[A-Za-z0-9_-]{43}|tasks/[0-9]+|projects/[A-Za-z0-9]+(?:/settings)?)?",
+            r"/(?:preview/return/[a-f0-9-]{36}/[A-Za-z0-9_-]{43}|account|agents|apps|imports|triage|invite/[A-Za-z0-9_-]{43}|tasks/[0-9]+|projects/[A-Za-z0-9]+(?:/settings)?)?",
             value or "",
         )
         else "/"
@@ -54,6 +55,10 @@ class Accounts:
         self.origin = env.PUBLIC_URL.rstrip("/")
         self.local = urlsplit(self.origin).hostname in {"localhost", "127.0.0.1"}
         self.cookie_name = "tt_session" if self.local else "__Host-tt_session"
+
+    @property
+    def link_origin(self):
+        return getattr(self.env, "PUBLIC_URL", self.origin).rstrip("/")
 
     def statement(self, sql, *args):
         return self.db.prepare(sql).bind(*args)
@@ -248,6 +253,12 @@ class Accounts:
         )
 
     async def authenticate(self, request, preview_secret=None):
+        from .sso import authorize_identity
+
+        identity = await self._authenticate(request, preview_secret)
+        return await authorize_identity(self, identity)
+
+    async def _authenticate(self, request, preview_secret=None):
         authorization = request.headers.get("Authorization", "")
         bearer = authorization.startswith("Bearer ")
         secret = (
@@ -258,6 +269,10 @@ class Accounts:
             bearer = False
         if not secret or len(secret) > 300:
             return None
+        if bearer and secret.startswith("tta_"):
+            from .service_apps import authenticate
+
+            return await authenticate(self, secret)
         session_hash = digest(secret)
         if preview_secret is not None:
             preview = await self.one(
@@ -286,6 +301,29 @@ class Accounts:
             return None
         if identity:
             identity.update(bearer=bearer, session_hash=session_hash)
+            if bearer:
+                scoped = await self.one(
+                    "SELECT g.* FROM agent_token_scopes s JOIN agent_grants g ON g.id=s.grant_id WHERE s.token_id=?",
+                    identity["token_id"],
+                )
+                if scoped:
+                    if (
+                        scoped["revoked_at"] is not None
+                        or scoped["expires_at"] <= timestamp()
+                    ):
+                        return None
+                    identity.update(
+                        agent_id=scoped["id"],
+                        token_project_ids=[
+                            str(x) for x in json.loads(scoped["projects"])
+                        ],
+                        token_capabilities=json.loads(scoped["capabilities"]),
+                    )
+                    await self.run(
+                        "UPDATE agent_grants SET last_used_at=? WHERE id=?",
+                        timestamp(),
+                        scoped["id"],
+                    )
         return identity
 
     async def member_identity(self, user_id, workspace_id):
@@ -396,7 +434,7 @@ class Accounts:
             timestamp(),
             timestamp() + 48 * 3600,
         )
-        return self.origin + "/invite/" + secret
+        return self.link_origin + "/invite/" + secret
 
     async def join(self, identity, secret):
         found = await self.one(
