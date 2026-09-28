@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 
 from .accounts import SESSION_AGE, cookie_value, digest, safe_next, timestamp, token
 from .db import Error
-from .hosted_pages import page
+from .hosted_pages import sso_page as page
 
 PRODUCT = "tasktrack"
 TENANT = "nates-software"
@@ -215,7 +215,7 @@ async def route(request, accounts, path, query, body_data, html, redirect):
             return html(
                 page(
                     "Signing in",
-                    '<main class="auth-card"><h1>Opening Tasks</h1>'
+                    '<main class="auth-card"><div class="sso-crosshair" aria-hidden="true"></div><h1>Opening Tasks</h1>'
                     '<p id="status" role="status">Checking your sign-in…</p>'
                     '<p><a class="button" id="retry" href="/login" hidden>Return to sign in</a></p>'
                     '<p class="small muted">SSO provided by Nate’s Software.</p></main>',

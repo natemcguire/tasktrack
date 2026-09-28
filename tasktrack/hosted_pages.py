@@ -38,6 +38,11 @@ def page(title, content, metadata="", script=False):
     return result
 
 
+def sso_page(title, content, metadata=""):
+    window = '<div class="sso-window"><div class="sso-titlebar">T · Tasks</div>' + content + '<footer>SSO provided by Nate’s Software</footer></div>'
+    return page(title, window, metadata).replace('class="hosted-page"', 'class="hosted-page sso-page"')
+
+
 def auth_page(mode="login", next_path="/", message="", secret="", challenge=""):
     if secret:
         title, intro = "Signing you in…", "Opening your workspace."
