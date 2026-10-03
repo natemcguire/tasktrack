@@ -70,9 +70,16 @@ def auth_page(mode="login", next_path="/", message="", secret="", challenge=""):
 
 
 def error_page(message, status=400):
-    return page(
-        "Something needs attention",
-        f'<main class="auth-card"><h1>{"Link unavailable." if status == 404 else "Let’s try that again."}</h1><p>{esc(message)}</p><a class="button" href="/login">Sign in</a></main>',
+    """Win95 dialog for any HTML error: what happened, why, and one next step."""
+    heading, action, href = {
+        401: ("Sign in to continue", "Sign in", "/login"),
+        403: ("You don’t have access to this", "Go to Tasks", "/"),
+        404: ("This link isn’t available", "Go to Tasks", "/"),
+    }.get(status, ("Something went wrong", "Try signing in again", "/login"))
+    return sso_page(
+        heading,
+        f'<main class="auth-card"><h1>{esc(heading)}</h1><p class="muted">{esc(message)}</p>'
+        f'<a class="button primary" href="{href}">{esc(action)}</a></main>',
     )
 
 
