@@ -15,8 +15,7 @@
   "preview_urls": false,
   "routes": [
     { "pattern": "tasks.nates-software.com", "custom_domain": true },
-    { "pattern": "tasks.nates-software.com/*", "zone_name": "nates-software.com" },
-    { "pattern": "tasks.eastbayprojects.com", "custom_domain": true }
+    { "pattern": "tasks.nates-software.com/*", "zone_name": "nates-software.com" }
   ],
   "services": [{ "binding": "AUTH_HUB", "service": "auth" }],
   "assets": {
@@ -37,17 +36,15 @@
     },
   ],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "tasktrack-files" }],
-  "send_email": [
-    {
-      "name": "EMAIL",
-      "allowed_sender_addresses": ["hello@tasks.eastbayprojects.com"],
-    },
-  ],
   "triggers": { "crons": ["23 * * * *"] },
   "vars": {
     "PUBLIC_URL": "https://tasks.nates-software.com",
     "ALLOWED_ORIGINS": "https://tasks.eastbayprojects.com",
-    "SSO_REQUIRED": "1"
+    "SSO_REQUIRED": "1",
+    // tasks.eastbayprojects.com is in the East Bay Projects Cloudflare account, so
+    // branded mail goes through ebp-mail-relay there (secret: MAIL_RELAY_SECRET).
+    "MAIL_FROM": "hello@tasks.eastbayprojects.com",
+    "MAIL_RELAY_URL": "https://relay.eastbayprojects.com/send"
   },
   "limits": { "cpu_ms": 10000 },
   "observability": {
