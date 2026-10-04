@@ -10,6 +10,7 @@ from http.cookies import SimpleCookie
 from urllib.parse import urlsplit
 
 from .db import Error
+from .mail import send as send_mail
 
 SESSION_AGE = 30 * 24 * 60 * 60
 
@@ -131,7 +132,8 @@ class Accounts:
             )
             return challenge
         try:
-            await self.env.EMAIL.send(
+            await send_mail(
+                self.env,
                 {
                     "from": {
                         "email": getattr(
@@ -144,7 +146,7 @@ class Accounts:
                     "to": email,
                     "subject": code + " is your Tasktrack sign-in code",
                     "text": body,
-                }
+                },
             )
         except Exception:
             await self.run("DELETE FROM login_links WHERE token_hash=?", digest(secret))
