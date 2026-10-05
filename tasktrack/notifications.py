@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 from .accounts import digest, timestamp, token
 from .agent_auth import browser
 from .db import Error, encode
+from .mail import send as send_mail
 
 
 async def enqueue(accounts, user, wid, event, channel, recipient, body):
@@ -47,7 +48,8 @@ async def dispatch(accounts, did):
                 timestamp(),
             )
         elif row["channel"] == "email":
-            await accounts.env.EMAIL.send(
+            await send_mail(
+                accounts.env,
                 {
                     "from": {
                         "email": getattr(
@@ -58,7 +60,7 @@ async def dispatch(accounts, did):
                     "to": row["recipient"],
                     "subject": "Your agent is waiting for your decision",
                     "text": row["body"],
-                }
+                },
             )
         else:
             from .integrations import module

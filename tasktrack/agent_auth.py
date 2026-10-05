@@ -7,6 +7,7 @@ import uuid
 
 from .accounts import digest, timestamp, token
 from .db import Error, encode
+from .mail import send as send_mail
 
 GRANT_AGE = 30 * 86400
 ACCESS_AGE = 900
@@ -175,7 +176,8 @@ async def deliver(accounts, eid):
                 timestamp(),
             )
         else:
-            await accounts.env.EMAIL.send(
+            await send_mail(
+                accounts.env,
                 {
                     "from": {
                         "email": getattr(
@@ -186,7 +188,7 @@ async def deliver(accounts, eid):
                     "to": user["email"],
                     "subject": "Your agent wants to authenticate",
                     "text": body,
-                }
+                },
             )
         await accounts.run(
             "UPDATE agent_notifications SET status='sent',sent_at=? WHERE id=?",
