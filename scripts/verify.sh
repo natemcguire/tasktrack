@@ -6,6 +6,12 @@ cd "$(git rev-parse --show-toplevel)"
 # Never let a suite reach the real Tasktrack from a developer shell.
 unset TT_URL TT_TOKEN TT_ACTOR TT_SESSION
 
+# capture_api.py and the browser suites rewrite checked-in evidence (docs/*.json, screenshots).
+# If docs/ was clean going in, put it back so a push leaves no diff behind;
+# run the npm scripts directly to refresh the evidence on purpose.
+if git diff --quiet -- docs; then trap 'git checkout -q -- docs' EXIT; fi
+
+
 # Domain suite on the oldest and newest supported Pythons (old CI matrix).
 for py in python3.11 python3.14; do
   command -v "$py" >/dev/null || { echo "verify: $py not found (brew install python@${py#python})"; exit 1; }
@@ -14,11 +20,6 @@ for py in python3.11 python3.14; do
   "$py" tests/mutation_checks.py
   "$py" tests/capture_api.py
 done
-
-# The browser suites rewrite checked-in evidence (docs/*.json, screenshots).
-# If docs/ was clean going in, put it back so a push leaves no diff behind;
-# run the npm scripts directly to refresh the evidence on purpose.
-if git diff --quiet -- docs; then trap 'git checkout -q -- docs' EXIT; fi
 
 [ -d node_modules ] || npm ci --silent
 npx playwright install chromium >/dev/null
