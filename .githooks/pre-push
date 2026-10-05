@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Local CI gate (replaces GitHub Actions). ship.sh sets SKIP_VERIFY after
+# running the same suite itself.
+[ -n "${SKIP_VERIFY:-}" ] && exit 0
+exec scripts/verify.sh

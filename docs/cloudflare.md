@@ -104,12 +104,15 @@ live HTTPS/browser checks and email-delivery verification status.
 
 ## Deploy
 
-The checked-in configuration targets the production account. Authenticate
-Wrangler, then run:
+The checked-in configuration targets the production account. CI runs locally,
+not on GitHub: `scripts/verify.sh` runs the full suite (also the pre-push
+hook), and from an up-to-date `main` with Wrangler authenticated,
 
 ```sh
-npm run deploy:cloudflare
+scripts/ship.sh
 ```
+
+verifies, pushes `main` and runs `npm run deploy:cloudflare`.
 
 This applies D1 migrations before deploying the Worker and assets. Workspace
 schemas migrate atomically on first access; newer schemas are refused by older

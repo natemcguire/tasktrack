@@ -681,6 +681,9 @@ class HTTPTests(Fixture):
         }
         self.env.pop("TT_ACTOR", None)
         self.env.pop("TT_SESSION", None)
+        # A developer shell may point the CLI at a real server; keep it local.
+        self.env.pop("TT_URL", None)
+        self.env.pop("TT_TOKEN", None)
         self.start_server()
         self.addCleanup(self.stop_server)
 

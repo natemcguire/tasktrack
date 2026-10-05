@@ -935,6 +935,9 @@ class BoardColumnsTest(unittest.TestCase):
             **dict(os.environ),
             "TT_DATA_DIR": str(self.directory),
         }
+        # A developer shell may point the CLI at a real server; keep it local.
+        env.pop("TT_URL", None)
+        env.pop("TT_TOKEN", None)
 
         # tt project columns <id> --json
         res = subprocess.run(
