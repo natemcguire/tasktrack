@@ -1,64 +1,62 @@
 # Tasktrack
 
-A kanban board for people and coding agents. Keep the requirements, owner
-and next action with the task.
+A kanban board for people and coding agents. The requirements, owner and next action stay with the task.
+
+```sh
+tt task create DEMO --file task.json   # add a task
+tt task claim DEMO-1 --version 1       # take it (one session owns a claim)
+tt brief --json                        # what's yours, when you come back
+```
 
 <a href="docs/screenshots/board.png"><img src="docs/screenshots/board.png" alt="Tasktrack board" width="560"></a>
 
-## What it does
-
-- Organize projects, epics and PRDs. Add tasks, comments and files.
-- Move cards from backlog to done. Assign owners and claim work atomically.
-- Save progress and hand off to another session without losing the thread.
-- Share a customer update with a picture and a link to the task.
-
-Browser, CLI and HTTP API. Python and SQLite. Hosted on Cloudflare or run locally.
-[MIT licensed](LICENSE).
-
 ## Get started
 
-[Open Tasktrack](https://tasks.nates-software.com). Sign in with Nate's Software SSO. Access requires membership in Nate's Software and an explicit Tasktrack product grant.
+Hosted: open [tasks.nates-software.com](https://tasks.nates-software.com) and sign in with Nate's Software SSO.
+You need workspace membership and a Tasktrack product grant.
 
-Or run it locally with Python 3.11+ and [uv](https://docs.astral.sh/uv/getting-started/installation/):
+Local, with Python 3.11+ and [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```sh
 uv tool install git+https://github.com/natemcguire/tasktrack
-tt serve
+tt serve                                # http://127.0.0.1:7777
 ```
 
-Open [localhost:7777](http://127.0.0.1:7777/). Data lives in `~/.local/share/tasktrack`.
+Data lives in `~/.local/share/tasktrack`.
 
-## Use the CLI
+## What it does
 
-Create a project, add a task and claim it:
+- Projects, epics and PRDs; tasks with comments, attachments and acceptance criteria
+- Cards move from backlog to done; claims are atomic and versioned
+- Checkpoints and handoffs, so another session can pick up the thread
+- Browser UI, CLI and HTTP API. Python and SQLite; runs locally or on Cloudflare
+
+## Usage
 
 ```sh
-export TT_ACTOR=codex TT_SESSION=homepage-1
-
+export TT_ACTOR=codex TT_SESSION=homepage-1   # who you are, which session
 tt project create DEMO "Demo"
-cat > task.json <<'JSON'
-{
-  "title": "Build the homepage",
-  "description_markdown": "Add a homepage with a signup link.",
-  "acceptance_criteria": ["The signup link opens the signup form."]
-}
-JSON
-tt task create DEMO --file task.json
-tt task claim DEMO-1 --version 1
-tt brief --json
+tt task list --project DEMO
+tt task comment DEMO-1 --body "Started on the hero section"
+tt task checkpoint DEMO-1 --version 2 --file checkpoint.json
+tt task handoff DEMO-1 --version 3 --to claude --file checkpoint.json
+tt task submit DEMO-1 --version 4 --file result.json
+tt backup ~/tasktrack-backup                  # local snapshot; tt restore <src> <dest>
 ```
 
-Use the task reference and current version returned by your board. A claim belongs
-to one session; `tt brief` shows your work when you come back.
+Each write takes the task's current `--version`. See `docs/example-task.json` and
+`docs/example-checkpoint.json` for the file shapes.
 
-For your hosted workspace, create a token under **Account → Agent access**:
+To talk to the hosted board, make a token under **Account → Agent access**:
 
 ```sh
-export TT_URL=https://tasks.nates-software.com
-export TT_TOKEN=your-token
+export TT_URL=https://tasks.nates-software.com TT_TOKEN=<token>
 tt brief --json
 ```
 
-[Browser guide](docs/browser.md) · [API & CLI](docs/api.md) ·
-[Backups](docs/persistence.md) · [Inbox integration](docs/integration.md) ·
-[Development & tests](docs/delivery.md) · [Cloudflare](docs/cloudflare.md)
+## Docs
+
+[Browser](docs/browser.md) · [API & CLI](docs/api.md) · [Backups](docs/persistence.md) ·
+[Inbox integration](docs/integration.md) · [Development](docs/delivery.md) · [Cloudflare](docs/cloudflare.md)
+
+[MIT licensed](LICENSE).
