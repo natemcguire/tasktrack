@@ -186,7 +186,7 @@ class SSOTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(sso, "hub", AsyncMock(return_value={"ok": True})) as call:
             self.assertEqual(
                 await sso.logout(self.accounts, identity),
-                "https://auth.nates-software.com/signed-out",
+                "https://auth.nates-software.com/signed-out?app=tasktrack",
             )
             call.assert_awaited_once_with(
                 self.accounts,
