@@ -172,19 +172,8 @@ async def route(request, accounts, path, query, body_data, html, redirect):
     from workers import Response
 
     if enabled(accounts) and path in {"/login", "/signup"} and request.method in {"GET", "HEAD"}:
-        start = "/auth/sso/start?" + urlencode({"next": safe_next(query.get("next"))})
-        return html(
-            page(
-                "Sign in",
-                '<main class="auth-card"><h1>Sign in to Tasks</h1>'
-                '<p class="muted">Your projects, tasks and team in one workspace.</p>'
-                '<p><a class="button primary" href="'
-                + escape(start, quote=True)
-                + '">Sign in with password or passkey</a></p>'
-                '<p class="small muted">SSO provided by Nate’s Software.</p>'
-                '<p class="small muted">Use your invited account. Your organization must grant access to Tasks.</p></main>',
-            )
-        )
+        # The hub's sign-in page is already branded Tasks; skip a second "Sign in" screen.
+        return redirect("/auth/sso/start?" + urlencode({"next": safe_next(query.get("next"))}))
     if path == "/auth/sso/start" and request.method in {"GET", "HEAD"}:
         await accounts.limit(
             "sso-login:" + request.headers.get("CF-Connecting-IP", "local"), 60, 600
@@ -217,8 +206,7 @@ async def route(request, accounts, path, query, body_data, html, redirect):
                     "Signing in",
                     '<main class="auth-card"><div class="sso-crosshair" aria-hidden="true"></div><h1>Opening Tasks</h1>'
                     '<p id="status" role="status">Checking your sign-in…</p>'
-                    '<p><a class="button" id="retry" href="/login" hidden>Return to sign in</a></p>'
-                    '<p class="small muted">SSO provided by Nate’s Software.</p></main>',
+                    '<p><a class="button" id="retry" href="/login" hidden>Try signing in again</a></p></main>',
                     '<script src="/sso.js" defer></script>',
                 )
             )
@@ -274,4 +262,4 @@ async def logout(accounts, identity):
             "logout_unavailable",
             "Could not sign out of all apps. Please try again.",
         )
-    return "https://auth.nates-software.com/signed-out"
+    return "https://auth.nates-software.com/signed-out?app=" + PRODUCT
