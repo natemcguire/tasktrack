@@ -1,12 +1,15 @@
-# Optional Agent Inboxes links
+# Optional conversation links
+
+> **Agent Inbox retired 2026-10-26.** Nate removed the Agent Inbox from every
+> project. Tasktrack never depended on it; the `thread_links` metadata below
+> remains a generic, optional reference to a conversation thread. Do not build an
+> inbox adapter or use inbox reservations.
 
 Tasktrack owns requirements, assignment, board state, dependencies and execution
-claims. Agent Inboxes owns messages, threads and file/resource reservations. V1
-stores thread references and resolves an **Open conversation** link when configured.
-It does not require the inbox service, copy messages, create AE tasks, or implement
-an inbox-side adapter.
+claims. V1 stores thread references and resolves an **Open conversation** link
+when configured. It does not call any messaging service or copy messages.
 
-The task identity used by any future adapter is:
+The task identity used in a link is:
 
 ```json
 {
@@ -54,8 +57,7 @@ Add an entry under `inbox_instances` in the Tasktrack data directory’s `config
 }
 ```
 
-The URL above is a configuration-shape example, **not an Agent Inboxes navigation
-contract**. Set the exact browser URL template documented by your inbox UI. The
+The URL above is a configuration-shape example, **not a navigation contract**. Set the exact browser URL template documented by your inbox UI. The
 available inbox source exposed HTTP thread routes but no documented browser
 navigation route, so this build does not guess one. Restart Tasktrack after editing
 configuration. `{project}`, `{thread_id}` and `{source}` are encoded when substituted.
@@ -63,14 +65,3 @@ Changing the port/base in this template does not rewrite stored identities.
 
 Without configuration, the task still displays the thread identity and explains
 that its URL is not configured. No inbox network call happens while loading a board.
-
-## Future inbox-side adapter boundary
-
-An adapter should read the versioned Tasktrack API, with bounded requests, at most
-one second for autocomplete, limited results, cancellation of superseded searches,
-and a small cache. An unavailable tracker must not block inbox sending or reading.
-Do not claim stale cached metadata is a successful current lookup. The current
-Agent Inboxes brief does not read Tasktrack.
-
-Use the inbox reservation tools for actual files. A Tasktrack claim never acquires,
-duplicates or releases those leases.

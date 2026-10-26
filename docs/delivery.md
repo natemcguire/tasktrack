@@ -80,11 +80,9 @@ preserved IDs, relationships, attribution, timestamps, hashes and legacy thread-
 identity, plus exercised actual legacy CLI/API entry points. Evidence currently
 available: [preservation and migration procedure](persistence.md) and schema-refusal tests.
 
-**Inbox enrichment is a separate repository change.** Next action: coordinate an
-Agent Inboxes adapter only when requested, using Tasktrack’s HTTP API. Acceptance:
-one task authority, at most one-second autocomplete calls, and working mail while
-Tasktrack is absent. Current evidence: stored-link rename/absence regression and
-[integration contract](integration.md). No inbox browser URL has been guessed.
+**Inbox enrichment is cancelled.** The Agent Inbox was retired on 2026-10-26, so no
+inbox adapter will be built. Stored conversation links remain; see the
+[link contract](integration.md).
 
 V1 has no blob garbage collection, accounts, cloud sync, process supervision or
 agent spawning. Current-state list cursors use offsets; edits between page reads

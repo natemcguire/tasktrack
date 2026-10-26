@@ -57,6 +57,6 @@ tt brief --json
 ## Docs
 
 [Browser](docs/browser.md) · [API & CLI](docs/api.md) · [Backups](docs/persistence.md) ·
-[Inbox integration](docs/integration.md) · [Development](docs/delivery.md) · [Cloudflare](docs/cloudflare.md)
+[Conversation links](docs/integration.md) · [Development](docs/delivery.md) · [Cloudflare](docs/cloudflare.md)
 
 [MIT licensed](LICENSE).
