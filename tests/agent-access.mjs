@@ -95,7 +95,7 @@ try {
   });
   await page.locator("#app-name").fill("Internal dashboard test");
   await page.locator("[data-project]").check();
-  await page.getByRole("button", { name: "Create with passkey" }).click();
+  await page.getByRole("button", { name: "Create", exact: true }).click();
   await expect(page.locator("#app-secret")).toBeVisible();
   const appCredential = JSON.parse(
     await page.locator("#app-credential").textContent(),
@@ -243,7 +243,7 @@ try {
   assert.equal((await api("/api/v1/me")).data.workspace_id, me.workspace_id);
   assert.equal((await api("/api/v1/agents")).data.items.length, 0);
   await page
-    .getByRole("button", { name: "Approve with passkey", exact: true })
+    .getByRole("button", { name: "Approve", exact: true })
     .click();
   await expect(page.locator("#agent-message")).toContainText("Approval saved.");
   const grant = await api("/oauth/token", {
@@ -285,7 +285,7 @@ try {
   await page
     .getByLabel("Phone verification code")
     .fill(delivery.body.match(/code is (\d{6})/)[1]);
-  await page.getByRole("button", { name: "Verify phone with passkey" }).click();
+  await page.getByRole("button", { name: "Verify phone" }).click();
   await expect(page.locator("#agent-message")).toContainText("Phone verified");
   assert.equal(
     (
@@ -333,7 +333,7 @@ try {
   );
   await page
     .locator("#approval-list")
-    .getByRole("button", { name: "Approve with passkey" })
+    .getByRole("button", { name: "Approve", exact: true })
     .click();
   await expect(page.locator("#approval-list")).toContainText("No pending");
   const executed = await api(

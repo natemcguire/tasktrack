@@ -237,9 +237,24 @@ async def route(request, accounts, path, query, body_data, html, redirect):
                 {"next": saved["next_path"]},
                 headers={"Set-Cookie": accounts.cookie(secret)},
             )
-    if path.startswith("/auth/") and path != "/auth/logout":
+    # Sign-in belongs to the hub, so passkey *login* stays closed here. Registering a
+    # passkey, removing one and the approval password are step-up credentials for
+    # approvals inside Tasktrack; they need the signed-in browser and stay available.
+    if path.startswith("/auth/") and path != "/auth/logout" and path not in STEP_UP_ROUTES:
         raise Error(403, "sso_required", "Sign in with Nate's Software SSO.")
     return None
+
+
+STEP_UP_ROUTES = frozenset(
+    "/auth/passkeys/" + action
+    for action in (
+        "register/options",
+        "register/verify",
+        "remove",
+        "password/set",
+        "password/remove",
+    )
+)
 
 
 async def logout(accounts, identity):

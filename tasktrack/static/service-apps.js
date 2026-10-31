@@ -24,45 +24,8 @@ async function api(path, body) {
   if (!r.ok) throw new Error(data.error?.message || "Request failed.");
   return data;
 }
-const decode = (s) =>
-  Uint8Array.from(atob(s.replaceAll("-", "+").replaceAll("_", "/")), (c) =>
-    c.charCodeAt(0),
-  );
-const encode = (b) =>
-  btoa(String.fromCharCode(...new Uint8Array(b)))
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replaceAll("=", "");
-async function confirmPasskey(challenge) {
-  const options = challenge.options;
-  const key = await navigator.credentials.get({
-    publicKey: {
-      ...options,
-      challenge: decode(options.challenge),
-      allowCredentials: options.allowCredentials.map((c) => ({
-        ...c,
-        id: decode(c.id),
-      })),
-    },
-  });
-  return {
-    challenge_id: challenge.challenge_id,
-    credential: {
-      id: key.id,
-      rawId: encode(key.rawId),
-      type: key.type,
-      response: {
-        authenticatorData: encode(key.response.authenticatorData),
-        clientDataJSON: encode(key.response.clientDataJSON),
-        signature: encode(key.response.signature),
-        userHandle: key.response.userHandle
-          ? encode(key.response.userHandle)
-          : null,
-      },
-      clientExtensionResults: key.getClientExtensionResults(),
-    },
-  };
-}
+// Passkey or approval password, decided by the server's challenge (stepup.js).
+const confirmPasskey = (challenge, anchor) => window.ttStepUp(challenge, anchor);
 const el = (tag, text, parent) => {
   const n = document.createElement(tag);
   n.textContent = text;
@@ -142,6 +105,7 @@ async function list() {
             const path = "/service-apps/" + app.id + "/" + action;
             const proof = await confirmPasskey(
               await api(path + "/challenge", {}),
+              b,
             );
             const value = await api(path, proof);
             if (value.client_secret) credential(value);
@@ -174,6 +138,7 @@ document.querySelector("#app-form").onsubmit = (e) => {
       };
       const proof = await confirmPasskey(
         await api("/service-apps/challenge", data),
+        b,
       );
       credential(await api("/service-apps", { ...data, ...proof }));
       await list();

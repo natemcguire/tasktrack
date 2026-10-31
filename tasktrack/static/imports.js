@@ -337,15 +337,6 @@ async function init() {
 }
 init().catch((e) => (message.textContent = e.message));
 
-const decode = (s) =>
-  Uint8Array.from(atob(s.replaceAll("-", "+").replaceAll("_", "/")), (c) =>
-    c.charCodeAt(0),
-  );
-const encode = (b) =>
-  btoa(String.fromCharCode(...new Uint8Array(b)))
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replaceAll("=", "");
 document.querySelector("#import-rollback").onclick = (e) =>
   run(e.target, async () => {
     if (!job) throw new Error("Choose an import first.");
@@ -365,38 +356,12 @@ document.querySelector("#import-rollback").onclick = (e) =>
       )
     )
       return;
-    const challenge = await api(path + "/challenge", {});
-    const o = challenge.options;
-    const k = await navigator.credentials.get({
-      publicKey: {
-        ...o,
-        challenge: decode(o.challenge),
-        allowCredentials: o.allowCredentials.map((c) => ({
-          ...c,
-          id: decode(c.id),
-        })),
-      },
-    });
-    const credential = {
-      id: k.id,
-      rawId: encode(k.rawId),
-      type: k.type,
-      response: {
-        clientDataJSON: encode(k.response.clientDataJSON),
-        authenticatorData: encode(k.response.authenticatorData),
-        signature: encode(k.response.signature),
-        userHandle: k.response.userHandle
-          ? encode(k.response.userHandle)
-          : null,
-      },
-      clientExtensionResults: k.getClientExtensionResults(),
-    };
+    const proof = await window.ttStepUp(
+      await api(path + "/challenge", {}),
+      e.target,
+    );
     details(
-      await api(path + "/decision", {
-        digest: job.digest,
-        challenge_id: challenge.challenge_id,
-        credential,
-      }),
+      await api(path + "/decision", { digest: job.digest, ...proof }),
     );
     await jobs();
     message.textContent =

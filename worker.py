@@ -345,6 +345,7 @@ class Default(WorkerEntrypoint):
                 "/agent-access.js",
                 "/service-apps.js",
                 "/imports.js",
+                "/stepup.js",
                 "/hosted.css",
                 "/favicon.svg",
             }

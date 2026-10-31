@@ -24,45 +24,8 @@ async function api(path, body) {
   if (!r.ok) throw new Error(data.error?.message || "Request failed.");
   return data;
 }
-const decode = (s) =>
-  Uint8Array.from(atob(s.replaceAll("-", "+").replaceAll("_", "/")), (c) =>
-    c.charCodeAt(0),
-  );
-const encode = (b) =>
-  btoa(String.fromCharCode(...new Uint8Array(b)))
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replaceAll("=", "");
-async function confirmPasskey(challenge) {
-  const options = challenge.options;
-  const key = await navigator.credentials.get({
-    publicKey: {
-      ...options,
-      challenge: decode(options.challenge),
-      allowCredentials: options.allowCredentials.map((c) => ({
-        ...c,
-        id: decode(c.id),
-      })),
-    },
-  });
-  return {
-    challenge_id: challenge.challenge_id,
-    credential: {
-      id: key.id,
-      rawId: encode(key.rawId),
-      type: key.type,
-      response: {
-        authenticatorData: encode(key.response.authenticatorData),
-        clientDataJSON: encode(key.response.clientDataJSON),
-        signature: encode(key.response.signature),
-        userHandle: key.response.userHandle
-          ? encode(key.response.userHandle)
-          : null,
-      },
-      clientExtensionResults: key.getClientExtensionResults(),
-    },
-  };
-}
+// Passkey or approval password, decided by the server's challenge (stepup.js).
+const confirmPasskey = (challenge, anchor) => window.ttStepUp(challenge, anchor);
 function line(parent, text) {
   const p = document.createElement("p");
   p.textContent = text;
@@ -75,8 +38,8 @@ async function attempt(button, fn) {
     await fn();
   } catch (e) {
     message.textContent =
-      e.name === "NotAllowedError"
-        ? "Passkey confirmation cancelled."
+      e.name === "NotAllowedError" || e.name === "AbortError"
+        ? "Confirmation cancelled."
         : e.message;
   } finally {
     button.disabled = false;
@@ -221,13 +184,13 @@ for (const decision of ["approve", "deny"]) {
         let proof = {};
         if (decision === "approve") {
           showProgress(
-            "Confirm with your passkey",
-            "Complete the system prompt, then return here to confirm the agent connected.",
+            "Confirm it's you",
+            "Complete the passkey prompt, or type your approval password, then return here to confirm the agent connected.",
           );
-          proof = await confirmPasskey(await api(path + "/challenge", {}));
+          proof = await confirmPasskey(await api(path + "/challenge", {}), button);
           showProgress(
             "Saving your approval",
-            "Passkey response received. Waiting for the server to record approval.",
+            "Confirmation received. Waiting for the server to record approval.",
           );
         }
         const result = await api(path + "/decision", { decision, ...proof });
@@ -240,8 +203,8 @@ for (const decision of ["approve", "deny"]) {
       } catch (e) {
         showProgress(
           "Approval not confirmed",
-          e.name === "NotAllowedError"
-            ? "The passkey prompt was cancelled or timed out. Review the request and try again."
+          e.name === "NotAllowedError" || e.name === "AbortError"
+            ? "The confirmation was cancelled or timed out. Review the request and try again."
             : e.message +
                 " Refresh this page to check whether approval was recorded.",
         );
@@ -327,13 +290,13 @@ async function loadApprovals() {
     for (const decision of ["approve", "deny"]) {
       const b = document.createElement("button");
       b.className = "button";
-      b.textContent = decision === "approve" ? "Approve with passkey" : "Deny";
+      b.textContent = decision === "approve" ? "Approve" : "Deny";
       b.onclick = () =>
         attempt(b, async () => {
           const path = "/approval-requests/" + item.id;
           const proof =
             decision === "approve"
-              ? await confirmPasskey(await api(path + "/challenge", {}))
+              ? await confirmPasskey(await api(path + "/challenge", {}), b)
               : {};
           await api(path + "/decision", { decision, ...proof });
           await loadApprovals();
@@ -389,7 +352,10 @@ document.querySelector("#channel-verify").onsubmit = (e) => {
   e.preventDefault();
   attempt(e.target.querySelector("button"), async () => {
     const path = "/agent-channels/" + pendingChannel.id;
-    const proof = await confirmPasskey(await api(path + "/challenge", {}));
+    const proof = await confirmPasskey(
+      await api(path + "/challenge", {}),
+      e.target.querySelector("button"),
+    );
     await api(path + "/verify", {
       ...proof,
       code: document.querySelector("#channel-code").value,

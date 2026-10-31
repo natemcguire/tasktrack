@@ -40,6 +40,8 @@ subprocess.run(
     ],
     check=True,
 )
+# Dependency-free: the approval password's PBKDF2 on WebCrypto.
+shutil.copy2(ROOT / "cloudflare/password.js", destination / "password.mjs")
 subprocess.run(
     [
         str(ROOT / "node_modules/.bin/esbuild"),

@@ -31,7 +31,7 @@ def import_page(identity):
         + escape(identity["csrf"])
         + '"><meta name="tt-workspace" content="'
         + escape(identity["workspace_id"])
-        + '"><script src="/imports.js" defer></script>',
+        + '"><script src="/stepup.js" defer></script><script src="/imports.js" defer></script>',
     )
 
 

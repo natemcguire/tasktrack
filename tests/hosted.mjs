@@ -256,6 +256,73 @@ try {
     "Email-only signup; scanner-safe links are consumed once; each new account gets its own workspace",
   );
 
+  // Approval password: the passkey-less step-up. Set on /account, typed inline on /agents.
+  const pwUser = await context();
+  await login(pwUser, "approval-password@example.invalid");
+  await request(pwUser, "/auth/passkeys/password/set", {
+    method: "POST",
+    body: { password: "short" },
+    headers: { Origin: url, Accept: "application/json" },
+    status: 422,
+  });
+  await pwUser.page.goto(url + "/account");
+  await pwUser.page.getByLabel("Approval password").fill("tide pools after rain");
+  await pwUser.page
+    .getByRole("button", { name: "Save password", exact: true })
+    .click();
+  await expect(
+    pwUser.page.getByRole("button", { name: "Remove password", exact: true }),
+  ).toBeVisible({ timeout: 20000 });
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS n FROM approval_passwords").get().n,
+    1,
+  );
+  const pwProject = await api(pwUser, "/projects", {
+    method: "POST",
+    status: 201,
+    body: { key: "PWD", name: "Password approvals" },
+  });
+  const pwEnrolment = await request(pwUser, "/oauth/device_authorization", {
+    method: "POST",
+    csrf: false,
+    body: {
+      workspace_id: pwUser.identity.workspace_id,
+      name: "Password agent",
+      project_ids: [pwProject.id],
+      capabilities: ["work.read"],
+    },
+  });
+  await pwUser.page.goto(pwEnrolment.verification_uri_complete);
+  await expect(pwUser.page.locator("#agent-review")).toBeVisible();
+  await pwUser.page.getByRole("button", { name: "Approve", exact: true }).click();
+  await pwUser.page.getByLabel("Approval password").fill("wrong wrong wrong");
+  await pwUser.page
+    .getByRole("button", { name: "Confirm with password", exact: true })
+    .click();
+  await expect(pwUser.page.locator("#agent-message")).toContainText(
+    "doesn't match",
+  );
+  await pwUser.page.getByRole("button", { name: "Approve", exact: true }).click();
+  await pwUser.page.getByLabel("Approval password").fill("tide pools after rain");
+  await pwUser.page
+    .getByRole("button", { name: "Confirm with password", exact: true })
+    .click();
+  await expect(pwUser.page.locator("#agent-message")).toContainText(
+    "Approval saved.",
+  );
+  const pwGrant = await request(pwUser, "/oauth/token", {
+    method: "POST",
+    csrf: false,
+    body: {
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+      device_code: pwEnrolment.device_code,
+    },
+  });
+  assert.ok(pwGrant.access_token);
+  pass(
+    "An approval password set on /account confirms an agent enrollment on a browser with no passkey",
+  );
+
   // Real WebAuthn ceremonies use a virtual platform authenticator, never mocked signatures.
   const passkeyUser = await context();
   await login(passkeyUser, "passkey@example.invalid");

@@ -1,9 +1,11 @@
-# Passkeys
+# Passkeys and the approval password
 
 Sign in with an email code, open **Account**, and choose **Add passkey**. Give it a
 recognizable name, such as “Personal laptop.” Your browser asks you to confirm with
 Touch ID, Face ID, a device PIN, or another supported authenticator. No password is
 needed. Email codes and sign-in links remain available for recovery.
+
+An **approval password** (Account → Approval password, twelve characters or more) confirms agent approvals, typed actions, internal-app credentials and import rollback when the browser has no passkey. It is stored as PBKDF2-HMAC-SHA512 with a per-user salt, is never a sign-in method, and locks for fifteen minutes after five wrong tries. Setting, replacing or removing it needs a sign-in within the last ten minutes, like passkeys.
 
 Passkeys belong to your account across workspaces. Removing one also ends sessions
 created with that passkey. Adding or removing a passkey requires signing in within

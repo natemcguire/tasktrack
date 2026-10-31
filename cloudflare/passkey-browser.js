@@ -28,21 +28,21 @@ async function call(action, data = {}) {
   }
   return result;
 }
-function failure(error) {
-  message.replaceChildren();
-  message.textContent =
+function failure(error, target = message) {
+  target.replaceChildren();
+  target.textContent =
     error.name === "NotAllowedError"
-      ? "Passkey request cancelled or unavailable. Try again or use an email code."
+      ? "Passkey request cancelled or unavailable. Try again, or set an approval password below."
       : error.code
         ? error.message
         : error.name === "InvalidStateError"
-          ? "This device already has a passkey for your account. Use it to sign in."
-          : "We couldn’t complete the passkey request. Try again or use an email code.";
+          ? "This device already has a passkey for your account."
+          : "We couldn’t complete that request. Try again in a moment.";
   if (error.code === "recent_sign_in_required") {
     const link = document.createElement("a");
     link.href = "/login?next=/account";
     link.textContent = " Sign in again";
-    message.append(link);
+    target.append(link);
   }
 }
 const login = document.querySelector("#passkey-login"),
@@ -93,6 +93,41 @@ if (browserSupportsWebAuthn() && window.isSecureContext) {
 } else if (message) {
   message.textContent =
     "Passkeys are unavailable in this browser. You can sign in with an email code.";
+}
+// The approval password works without WebAuthn, so it lives outside the branch above.
+const passwordForm = document.querySelector("#approval-password"),
+  passwordMessage = document.querySelector("#approval-password-message");
+if (passwordForm) {
+  passwordForm.onsubmit = async (event) => {
+    event.preventDefault();
+    if (!passwordForm.reportValidity()) return;
+    const button = passwordForm.querySelector("button");
+    button.disabled = true;
+    passwordMessage.textContent = "Saving…";
+    try {
+      await call("password/set", {
+        password: document.querySelector("#approval-password-value").value,
+      });
+      location.reload();
+    } catch (e) {
+      failure(e, passwordMessage);
+      button.disabled = false;
+    }
+  };
+  const removePassword = document.querySelector("#remove-approval-password");
+  if (removePassword)
+    removePassword.onclick = async () => {
+      if (!confirm("Remove the approval password? Approvals will need a passkey."))
+        return;
+      removePassword.disabled = true;
+      try {
+        await call("password/remove");
+        location.reload();
+      } catch (e) {
+        failure(e, passwordMessage);
+        removePassword.disabled = false;
+      }
+    };
 }
 document.querySelectorAll("[data-remove-passkey]").forEach((button) => {
   button.onclick = async () => {

@@ -358,6 +358,10 @@ class Accounts:
                 "SELECT id,name,created_at,last_used_at FROM passkeys WHERE user_id=? ORDER BY created_at",
                 identity["user_id"],
             ),
+            "approval_password": await self.one(
+                "SELECT updated_at FROM approval_passwords WHERE user_id=?",
+                identity["user_id"],
+            ),
             "workspaces": await self.many(
                 "SELECT w.id,w.name,m.role,m.kind,m.access_role,m.status,m.revision FROM memberships m JOIN workspaces w ON w.id=m.workspace_id WHERE m.user_id=? AND m.status='active' ORDER BY w.created_at,w.id",
                 identity["user_id"],

@@ -1,11 +1,22 @@
-"""Browser-bound, single-use passkey ceremonies; verified by SimpleWebAuthn."""
+"""Browser-bound, single-use passkey ceremonies; verified by SimpleWebAuthn.
+
+Step-up confirmation (agent approvals, typed actions, service apps, import rollback)
+accepts either a passkey assertion or the account's approval password. The password
+is a fallback for a browser without the passkey; it never signs anyone in.
+"""
 
 import base64
+import hashlib
+import hmac
 import json
 import re
+import secrets
 from urllib.parse import urlsplit
 
-from workers import Response, import_from_javascript
+try:
+    from workers import Response, import_from_javascript
+except ImportError:  # Host tests cover the password path without the Worker runtime.
+    Response = import_from_javascript = None
 
 from .accounts import SESSION_AGE, cookie_value, digest, safe_next, timestamp, token
 from .db import Error
@@ -26,19 +37,102 @@ def user_handle(uid):
     return base64.urlsafe_b64encode(uid.encode()).decode().rstrip("=")
 
 
+PASSWORD_ITERATIONS = 210_000
+PASSWORD_MIN, PASSWORD_MAX = 12, 200
+
+
+async def password_hash(password, salt, iterations):
+    # Pyodide's hashlib has no pbkdf2_hmac; the Worker derives on WebCrypto (password.mjs).
+    if import_from_javascript is None:
+        return hashlib.pbkdf2_hmac(
+            "sha512", password.encode(), bytes.fromhex(salt), iterations
+        ).hex()
+    module = import_from_javascript("password.mjs")
+    return str(await module.pbkdf2(password, salt, iterations))
+
+
+async def password_row(accounts, uid):
+    return await accounts.one(
+        "SELECT salt,hash,iterations,updated_at FROM approval_passwords WHERE user_id=?",
+        uid,
+    )
+
+
+async def set_password(accounts, identity, data):
+    """Create or replace the approval password. Needs a recent browser sign-in (caller checks)."""
+    password = data.get("password")
+    if not isinstance(password, str) or not PASSWORD_MIN <= len(password) <= PASSWORD_MAX:
+        raise Error(
+            422,
+            "password_length",
+            f"Use an approval password of {PASSWORD_MIN}–{PASSWORD_MAX} characters.",
+        )
+    if (
+        password.strip() != password
+        or len(set(password)) < 4
+        or password.lower() == identity.get("email", "").lower()
+    ):
+        raise Error(422, "password_weak", "Choose a less guessable approval password.")
+    salt, now = secrets.token_hex(16), timestamp()
+    await accounts.run(
+        "INSERT INTO approval_passwords(user_id,salt,hash,iterations,created_at,updated_at) VALUES(?,?,?,?,?,?) "
+        "ON CONFLICT(user_id) DO UPDATE SET salt=excluded.salt,hash=excluded.hash,iterations=excluded.iterations,updated_at=excluded.updated_at",
+        identity["user_id"],
+        salt,
+        await password_hash(password, salt, PASSWORD_ITERATIONS),
+        PASSWORD_ITERATIONS,
+        now,
+        now,
+    )
+    return {"saved": True, "updated_at": now}
+
+
+async def remove_password(accounts, identity):
+    row = await accounts.one(
+        "DELETE FROM approval_passwords WHERE user_id=? RETURNING user_id",
+        identity["user_id"],
+    )
+    if not row:
+        raise Error(404, "password_missing", "No approval password is set.")
+    return {"removed": True}
+
+
+async def verify_password(accounts, identity, password):
+    """Five wrong tries in fifteen minutes lock the password out; the challenge is already spent."""
+    if not isinstance(password, str) or len(password) > PASSWORD_MAX:
+        raise Error(422, "password_invalid", "Enter your approval password.")
+    row = await password_row(accounts, identity["user_id"])
+    if not row:
+        raise Error(
+            403,
+            "password_missing",
+            "No approval password is set. Add one in Account settings.",
+        )
+    await accounts.limit("approval-password:" + identity["user_id"], 5, 900)
+    expected = await password_hash(password, row["salt"], row["iterations"])
+    if not hmac.compare_digest(expected, row["hash"]):
+        raise Error(403, "password_invalid", "That approval password doesn't match.")
+
+
+async def step_up_methods(accounts, uid):
+    keys = await accounts.many("SELECT id FROM passkeys WHERE user_id=?", uid)
+    methods = ["passkey"] if keys else []
+    if await password_row(accounts, uid):
+        methods.append("password")
+    return keys, methods
+
+
 async def step_up_options(accounts, identity, binding):
     from .agent_auth import browser
 
     browser(identity)
     await accounts.limit("human-challenge:" + identity["user_id"], 30)
-    keys = await accounts.many(
-        "SELECT id FROM passkeys WHERE user_id=?", identity["user_id"]
-    )
-    if not keys:
+    keys, methods = await step_up_methods(accounts, identity["user_id"])
+    if not methods:
         raise Error(
             403,
             "passkey_required",
-            "Add a passkey in Account settings before approving agent access.",
+            "Add a passkey or an approval password in Account settings before approving.",
         )
     secret, challenge = token(), token()
     await accounts.run(
@@ -52,6 +146,7 @@ async def step_up_options(accounts, identity, binding):
     )
     return {
         "challenge_id": secret,
+        "methods": methods,
         "options": {
             "challenge": challenge,
             "rpId": urlsplit(accounts.origin).hostname,
@@ -60,7 +155,9 @@ async def step_up_options(accounts, identity, binding):
             "allowCredentials": [
                 {"id": key["id"], "type": "public-key"} for key in keys
             ],
-        },
+        }
+        if keys
+        else None,
     }
 
 
@@ -85,6 +182,9 @@ async def step_up_verify(accounts, identity, binding, data):
             "challenge_expired",
             "Approval confirmation expired or changed. Review it again.",
         )
+    if "password" in data and data.get("credential") is None:
+        await verify_password(accounts, identity, data.get("password"))
+        return
     response = data.get("credential")
     if (
         not isinstance(response, dict)
@@ -146,7 +246,11 @@ async def browser_identity(accounts, request):
         "SELECT expires_at FROM sessions WHERE token_hash=?", identity["session_hash"]
     )
     if not row or row["expires_at"] - SESSION_AGE < timestamp() - 600:
-        raise Error(403, "recent_sign_in_required", "Sign in again to manage passkeys.")
+        raise Error(
+            403,
+            "recent_sign_in_required",
+            "Sign in again to change passkeys or the approval password.",
+        )
     return identity
 
 
@@ -167,11 +271,17 @@ async def route(accounts, request, path, data):
         "login/options",
         "login/verify",
         "remove",
+        "password/set",
+        "password/remove",
     }:
         raise Error(404, "not_found", "Passkey route not found.")
     identity = None
-    if action.startswith("register") or action == "remove":
+    if action.startswith(("register", "password")) or action == "remove":
         identity = await browser_identity(accounts, request)
+    if action == "password/set":
+        return Response.json(await set_password(accounts, identity, data))
+    if action == "password/remove":
+        return Response.json(await remove_password(accounts, identity))
     if action == "remove":
         row = await accounts.one(
             "SELECT id FROM passkeys WHERE id=? AND user_id=?",
