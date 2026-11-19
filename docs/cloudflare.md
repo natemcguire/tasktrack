@@ -5,7 +5,7 @@ API, accounts, files and sign-in email on Cloudflare.
 
 ## Sign in and share
 
-Production delegates sign-in to auth.nates-software.com. Nate's Software membership and the Tasktrack product grant are checked on every authenticated request, including API tokens. Legacy email/passkey sign-in is disabled in SSO mode. Existing accounts and workspaces are preserved. See [SSO tenancy](sso-tenancy.md).
+Production delegates sign-in to auth.nates-software.com. Nate's Software membership and the Tasktrack product grant are checked on every authenticated request, including API tokens. Legacy email/passkey sign-in is disabled in SSO mode. Existing accounts and workspaces are preserved. Anyone can create an account at `/signup`; a new account starts in its own workspace. See [SSO tenancy](sso-tenancy.md).
 
 **Account** lets the owner rename the workspace, invite a teammate, remove a
 member and issue agent tokens. Each invitation works once and expires in 48 hours.

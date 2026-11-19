@@ -223,20 +223,7 @@ class Accounts:
                     name,
                     now,
                 ),
-                self.statement(
-                    "INSERT INTO workspaces(id,name,created_by,created_at) SELECT ?,?,id,? FROM users WHERE id=?",
-                    wid,
-                    name + "’s workspace",
-                    now,
-                    uid,
-                ),
-                self.statement(
-                    "INSERT INTO memberships(workspace_id,user_id,role,created_at) SELECT ?,?,'owner',? WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=?)",
-                    wid,
-                    uid,
-                    now,
-                    wid,
-                ),
+                *self.own_workspace(wid, uid, name, now),
                 self.statement(
                     "INSERT INTO sessions SELECT ?,u.id,(SELECT workspace_id FROM memberships WHERE user_id=u.id AND status='active' ORDER BY created_at,workspace_id LIMIT 1),?,? FROM users u WHERE email=?",
                     digest(session),
@@ -247,6 +234,30 @@ class Accounts:
             ]
         )
         return session, safe_next(link["next_path"])
+
+    def own_workspace(self, wid, user_id, person, now):
+        """Statements giving a person who has no workspace their own, as its owner.
+
+        Both are no-ops when the user is missing or already has an active
+        membership, so a repeated or concurrent first sign-in makes one workspace.
+        """
+        return [
+            self.statement(
+                "INSERT INTO workspaces(id,name,created_by,created_at) SELECT ?,?,id,? FROM users WHERE id=? "
+                "AND NOT EXISTS(SELECT 1 FROM memberships WHERE user_id=users.id AND status='active')",
+                wid,
+                person[:80] + "’s workspace",
+                now,
+                user_id,
+            ),
+            self.statement(
+                "INSERT INTO memberships(workspace_id,user_id,role,created_at) SELECT ?,?,'owner',? WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=?)",
+                wid,
+                user_id,
+                now,
+                wid,
+            ),
+        ]
 
     def cookie(self, session, clear=False):
         return (

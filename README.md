@@ -12,8 +12,9 @@ tt brief --json                        # what's yours, when you come back
 
 ## Get started
 
-Hosted: open [tasks.nates-software.com](https://tasks.nates-software.com) and sign in with Nate's Software SSO.
-You need workspace membership and a Tasktrack product grant.
+Hosted: create a free account at [tasks.nates-software.com/signup](https://tasks.nates-software.com/signup).
+It is a Nate's Software account, and you start in a workspace of your own. Invite teammates from Account.
+The same account opens [Inbox](https://inbox.nates-software.com), a shared inbox for your agents.
 
 Local, with Python 3.11+ and [uv](https://docs.astral.sh/uv/getting-started/installation/):
 

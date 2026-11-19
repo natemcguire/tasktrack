@@ -99,9 +99,11 @@ async def create_session(accounts, exchange):
         raise Error(
             403,
             "product_access_required",
-            "An invitation to Nate's Software with Tasktrack access is required.",
+            "A Nate's Software account with Tasks access is required. Create one from the sign-in page.",
         )
-    # Preserve all existing account IDs and workspaces by matching the verified email.
+    # Preserve all existing account IDs and workspaces by matching the hub email.
+    # The hub refuses open sign-up for any address already on its member list, so
+    # every existing Tasks member must have a hub member row before sign-up opens.
     uid = str(uuid.uuid4())
     await accounts.run(
         "INSERT OR IGNORE INTO users VALUES (?,?,?,?)",
@@ -110,24 +112,16 @@ async def create_session(accounts, exchange):
         user.get("name") or email.split("@")[0],
         timestamp(),
     )
-    existing = await accounts.one("SELECT id FROM users WHERE email=?", email)
+    existing = await accounts.one("SELECT id,name FROM users WHERE email=?", email)
     uid = existing["id"]
-    membership = await accounts.one(
-        "SELECT workspace_id FROM memberships WHERE user_id=? AND status='active' ORDER BY created_at,workspace_id LIMIT 1",
-        uid,
-    )
-    if not membership:
+    landing = "SELECT workspace_id FROM memberships WHERE user_id=? AND status='active' ORDER BY created_at,workspace_id LIMIT 1"
+    membership = await accounts.one(landing, uid)
+    if not membership and email == OWNER:
         owner_workspace = await accounts.one(
             "SELECT w.id FROM workspaces w JOIN users u ON u.id=w.created_by WHERE u.email=? ORDER BY w.created_at,w.id LIMIT 1",
             OWNER,
         )
         if not owner_workspace:
-            if email != OWNER:
-                raise Error(
-                    403,
-                    "owner_setup_required",
-                    "The organization owner must sign in first.",
-                )
             wid = str(uuid.uuid4())
             await accounts.run(
                 "INSERT INTO workspaces(id,name,created_by,created_at) VALUES (?,?,?,?)",
@@ -138,15 +132,29 @@ async def create_session(accounts, exchange):
             )
         else:
             wid = owner_workspace["id"]
-        # A product grant admits invited members, but does not grant workspace administration.
         await accounts.run(
             "INSERT OR IGNORE INTO memberships(workspace_id,user_id,role,created_at) VALUES (?,?,?,?)",
             wid,
             uid,
-            "owner" if email == OWNER else "member",
+            "owner",
             timestamp(),
         )
         membership = {"workspace_id": wid}
+    elif not membership:
+        # Sign-up is open: a new person gets a workspace of their own and never
+        # joins someone else's. Joining another workspace takes its invitation.
+        await accounts.db.batch(
+            accounts.own_workspace(
+                str(uuid.uuid4()), uid, existing["name"], timestamp()
+            )
+        )
+        membership = await accounts.one(landing, uid)
+        if not membership:
+            raise Error(
+                503,
+                "workspace_unavailable",
+                "Your workspace could not be opened. Try signing in again.",
+            )
     secret = token()
     await accounts.db.batch(
         [
@@ -172,8 +180,12 @@ async def route(request, accounts, path, query, body_data, html, redirect):
     from workers import Response
 
     if enabled(accounts) and path in {"/login", "/signup"} and request.method in {"GET", "HEAD"}:
-        # The hub's sign-in page is already branded Tasks; skip a second "Sign in" screen.
-        return redirect("/auth/sso/start?" + urlencode({"next": safe_next(query.get("next"))}))
+        # The hub's pages are already branded Tasks; skip a second screen here.
+        # /signup opens the hub on account creation, /login on sign-in.
+        start = {"next": safe_next(query.get("next"))}
+        if path == "/signup":
+            start["intent"] = "signup"
+        return redirect("/auth/sso/start?" + urlencode(start))
     if path == "/auth/sso/start" and request.method in {"GET", "HEAD"}:
         await accounts.limit(
             "sso-login:" + request.headers.get("CF-Connecting-IP", "local"), 60, 600
@@ -192,6 +204,7 @@ async def route(request, accounts, path, query, body_data, html, redirect):
                 "return": accounts.origin + "/auth/sso/callback",
                 "state": state,
             }
+            | ({"intent": "signup"} if query.get("intent") == "signup" else {})
         )
         return redirect(
             url,

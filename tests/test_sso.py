@@ -13,6 +13,16 @@ class SSOTests(unittest.IsolatedAsyncioTestCase):
 
         AgentTests.setUp(self)
         self.accounts.env.SSO_REQUIRED = "1"
+
+        async def batch(statements):
+            # D1 returns each statement's rows; accepting an invitation reads them.
+            with self.c:
+                return [
+                    {"results": [dict(r) for r in self.c.execute(sql, args).fetchall()]}
+                    for sql, args in statements
+                ]
+
+        self.accounts.batch = batch
         self.c.execute("UPDATE users SET email=? WHERE id='u'", (sso.OWNER,))
 
     def exchange(self, email=sso.OWNER):
@@ -57,13 +67,142 @@ class SSOTests(unittest.IsolatedAsyncioTestCase):
                 self.accounts, self.exchange() | {"products": ["view"]}
             )
 
-    async def test_invited_user_joins_owner_workspace_without_admin(self):
-        await sso.create_session(self.accounts, self.exchange("invited@example.com"))
-        row = self.c.execute(
-            "SELECT m.* FROM memberships m JOIN users u ON u.id=m.user_id WHERE u.email='invited@example.com'"
-        ).fetchone()
-        self.assertEqual(row["workspace_id"], "w")
-        self.assertEqual(row["access_role"], "regular")
+    async def signed_in(self, email):
+        """Sign in through SSO and return the identity the next request would get."""
+        secret = await sso.create_session(self.accounts, self.exchange(email))
+        request = SimpleNamespace(headers={"Cookie": "tt_session=" + secret})
+        claims = {
+            "active": True,
+            "tenant_id": sso.TENANT,
+            "products": [sso.PRODUCT],
+            "email": email,
+        }
+        with patch.object(sso, "hub", AsyncMock(return_value=claims)):
+            return await self.accounts.authenticate(request)
+
+    async def test_new_person_gets_their_own_workspace_apart_from_the_owner(self):
+        identity = await self.signed_in("new@example.com")
+        self.assertNotEqual(identity["workspace_id"], "w")
+        self.assertEqual(
+            (identity["access_role"], identity["kind"]), ("admin", "internal")
+        )
+        self.accounts.owner(identity)  # may administer their own workspace
+        overview = await self.accounts.overview(identity)
+        self.assertEqual(
+            [w["id"] for w in overview["workspaces"]], [identity["workspace_id"]]
+        )
+        self.assertEqual(
+            [m["email"] for m in overview["members"]], ["new@example.com"]
+        )
+        # The owner's workspace is closed to them: not a member, cannot switch in.
+        self.assertIsNone(
+            await self.accounts.member_identity(identity["user_id"], "w")
+        )
+        with self.assertRaises(Error) as denied:
+            await self.accounts.switch(identity, "w")
+        self.assertEqual(denied.exception.status, 404)
+        # The owner's member list is unchanged by the sign-up.
+        self.assertEqual(
+            [
+                m["email"]
+                for m in (await self.accounts.overview(self.identity))["members"]
+            ],
+            [sso.OWNER],
+        )
+
+    async def test_signing_in_again_reopens_the_same_personal_workspace(self):
+        first = await self.signed_in("new@example.com")
+        second = await self.signed_in("new@example.com")
+        self.assertEqual(second["workspace_id"], first["workspace_id"])
+        self.assertEqual(second["user_id"], first["user_id"])
+        self.assertEqual(
+            len((await self.accounts.overview(second))["workspaces"]), 1
+        )
+
+    async def test_two_new_people_do_not_share_a_workspace(self):
+        one = await self.signed_in("one@example.com")
+        two = await self.signed_in("two@example.com")
+        self.assertNotEqual(one["workspace_id"], two["workspace_id"])
+        self.assertIsNone(
+            await self.accounts.member_identity(two["user_id"], one["workspace_id"])
+        )
+
+    async def test_existing_member_still_lands_in_their_existing_workspace(self):
+        self.c.execute(
+            "INSERT INTO users VALUES('m','member@example.com','Member',2)"
+        )
+        self.c.execute(
+            "INSERT INTO memberships(workspace_id,user_id,role,created_at) VALUES('w','m','member',2)"
+        )
+        identity = await self.signed_in("member@example.com")
+        self.assertEqual(identity["user_id"], "m")
+        self.assertEqual(identity["workspace_id"], "w")
+        self.assertEqual(identity["access_role"], "regular")
+        self.assertEqual(
+            [w["id"] for w in (await self.accounts.overview(identity))["workspaces"]],
+            ["w"],
+        )
+
+    async def test_signed_up_person_can_still_accept_a_workspace_invitation(self):
+        person = await self.signed_in("new@example.com")
+        own = person["workspace_id"]
+        link = await self.accounts.invite(self.identity)
+        await self.accounts.join(person, link.rsplit("/", 1)[1])
+        invited = await self.accounts.member_identity(person["user_id"], "w")
+        self.assertEqual(invited["access_role"], "regular")
+        self.assertEqual(
+            {w["id"] for w in (await self.accounts.overview(person))["workspaces"]},
+            {own, "w"},
+        )
+
+    async def test_signup_opens_account_creation_and_login_opens_sign_in(self):
+        from urllib.parse import parse_qs, urlsplit
+
+        request = SimpleNamespace(method="GET", headers={})
+        sent = []
+
+        def redirect(url, cookie=None):
+            sent.append(url)
+            return url
+
+        async def hub_query(path, query):
+            """Follow /login or /signup to the hub and return the hub URL's query."""
+            start = urlsplit(
+                await sso.route(request, self.accounts, path, query, None, None, redirect)
+            )
+            self.assertEqual(start.path, "/auth/sso/start")
+            forwarded = {k: v[0] for k, v in parse_qs(start.query).items()}
+            hub = urlsplit(
+                await sso.route(
+                    request,
+                    self.accounts,
+                    start.path,
+                    forwarded,
+                    None,
+                    None,
+                    redirect,
+                )
+            )
+            self.assertEqual(hub.netloc, "auth.nates-software.com")
+            self.assertEqual(hub.path, "/authorize")
+            return {k: v[0] for k, v in parse_qs(hub.query).items()}
+
+        with patch.dict("sys.modules", {"workers": SimpleNamespace(Response=None)}):
+            signup = await hub_query("/signup", {"next": "/account"})
+            login = await hub_query("/login", {"next": "/account"})
+        self.assertEqual(signup["intent"], "signup")
+        self.assertNotIn("intent", login)
+        for sent_query in (signup, login):
+            self.assertEqual(sent_query["app"], "tasktrack")
+            self.assertEqual(
+                sent_query["return"], "http://localhost:8787/auth/sso/callback"
+            )
+            # The return path chosen before sign-up survives the round trip.
+            saved = await self.accounts.one(
+                "SELECT next_path FROM sso_states WHERE state_hash=?",
+                digest(sent_query["state"]),
+            )
+            self.assertEqual(saved["next_path"], "/account")
 
     async def test_live_revocation_and_legacy_session_denial(self):
         secret = await sso.create_session(self.accounts, self.exchange())
